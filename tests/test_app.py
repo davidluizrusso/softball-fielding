@@ -1,11 +1,17 @@
 from streamlit.testing.v1 import AppTest
 
 
-def test_app_loads_and_sample_roster_optimizes():
+def test_app_loads_csv_defaults_and_optimizes():
     app = AppTest.from_file("app.py").run(timeout=20)
 
     assert not app.exception
     assert app.title[0].value == "🥎 Softball Fielding Optimizer"
+    roster = app.session_state["roster"]
+    assert len(roster) == 15
+    assert sum(record["gender"] == "Woman" for record in roster) == 5
+    assert "SS" in next(
+        record["preferences"] for record in roster if record["name"] == "Kevin"
+    )
 
     optimize_button = next(
         button for button in app.button if button.label == "Optimize seven innings"

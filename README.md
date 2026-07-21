@@ -26,4 +26,9 @@ Run the automated tests with:
 No database or secrets are required. Each visitor's roster stays in their own
 Streamlit session.
 
+The initial roster, genders, and positional preferences are loaded from
+`roster_positions.csv`. Everyone defaults to available unless the file includes
+an `Available` column. The app accepts `Yes`, `Y`, `True`, `1`, or `X` as a
+selected position.
+
 See [SPEC.md](SPEC.md) for the lineup rules and optimization priorities.

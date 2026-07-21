@@ -13,6 +13,9 @@ than two positions when possible.
 - Availability for the game, toggled from a tap-friendly player list
 - Unranked positional preferences, selected from wrapping position buttons
 
+The initial names, genders, and preferences come from `roster_positions.csv`.
+All players default to available when the file has no availability column.
+
 Preferences are hard eligibility rules: a player may not be assigned to an
 unlisted position.
 

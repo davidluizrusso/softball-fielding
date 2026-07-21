@@ -1,5 +1,6 @@
 """Streamlit interface for the softball fielding optimizer."""
 
+from pathlib import Path
 from typing import Dict, List
 
 import pandas as pd
@@ -51,31 +52,94 @@ st.markdown(
 )
 
 
-def sample_roster() -> List[Dict[str, object]]:
-    rows = [
-        ("Alex", "Woman", True, {"P", "1B", "2B"}),
-        ("Blair", "Woman", True, {"C", "2B", "SS"}),
-        ("Casey", "Woman", True, {"LF", "LC", "RC", "RF"}),
-        ("Drew", "Woman", True, {"3B", "SS", "LF"}),
-        ("Evan", "Man", True, {"P", "1B"}),
-        ("Finley", "Man", True, {"C", "2B"}),
-        ("Gray", "Man", True, {"3B", "SS"}),
-        ("Hayden", "Man", True, {"LF", "LC"}),
-        ("Jamie", "Man", True, {"LC", "RC", "RF"}),
-        ("Kai", "Man", True, {"1B", "RF"}),
-        ("Logan", "Man", True, {"2B", "LF"}),
-        ("Morgan", "Man", True, {"C", "3B", "RC"}),
-    ]
-    return [
-        {
-            "id": f"player-{index}",
-            "name": name,
-            "gender": gender,
-            "available": available,
-            "preferences": set(preferences),
+ROSTER_CSV = Path(__file__).with_name("roster_positions.csv")
+DEFAULT_ROSTER_VERSION = 1
+LEGACY_SAMPLE_NAMES = {
+    "Alex",
+    "Blair",
+    "Casey",
+    "Drew",
+    "Evan",
+    "Finley",
+    "Gray",
+    "Hayden",
+    "Jamie",
+    "Kai",
+    "Logan",
+    "Morgan",
+}
+
+
+def selected(value: object) -> bool:
+    if pd.isna(value):
+        return False
+    return str(value).strip().lower() in {"1", "true", "t", "yes", "y", "x"}
+
+
+def normalized_gender(value: object) -> str:
+    gender = str(value).strip().lower()
+    if gender in {"f", "female", "w", "woman"}:
+        return "Woman"
+    if gender in {"m", "male", "man"}:
+        return "Man"
+    raise ValueError(f"Unsupported gender value in {ROSTER_CSV.name}: {value!r}.")
+
+
+def default_roster() -> List[Dict[str, object]]:
+    table = pd.read_csv(ROSTER_CSV, encoding="utf-8-sig")
+    columns = {str(column).strip().upper(): column for column in table.columns}
+    required_columns = {"NAME", "GENDER", *POSITIONS}
+    missing_columns = sorted(required_columns.difference(columns))
+    if missing_columns:
+        raise ValueError(
+            f"{ROSTER_CSV.name} is missing column(s): "
+            + ", ".join(missing_columns)
+            + "."
+        )
+
+    roster = []
+    for index, (_, row) in enumerate(table.iterrows(), start=1):
+        name = str(row[columns["NAME"]]).strip()
+        if not name:
+            continue
+        preferences = {
+            position
+            for position in POSITIONS
+            if selected(row[columns[position]])
         }
-        for index, (name, gender, available, preferences) in enumerate(rows, start=1)
-    ]
+        gender = normalized_gender(row[columns["GENDER"]])
+        Player(name=name, gender=gender, preferences=frozenset(preferences))
+        roster.append(
+            {
+                "id": f"player-{index}",
+                "name": name,
+                "gender": gender,
+                "available": (
+                    selected(row[columns["AVAILABLE"]])
+                    if "AVAILABLE" in columns
+                    else True
+                ),
+                "preferences": preferences,
+            }
+        )
+
+    duplicate_names = sorted(
+        {
+            str(record["name"])
+            for record in roster
+            if sum(
+                candidate["name"] == record["name"] for candidate in roster
+            )
+            > 1
+        }
+    )
+    if duplicate_names:
+        raise ValueError(
+            f"{ROSTER_CSV.name} contains duplicate name(s): "
+            + ", ".join(duplicate_names)
+            + "."
+        )
+    return roster
 
 
 def roster_from_legacy_table(table: pd.DataFrame) -> List[Dict[str, object]]:
@@ -179,9 +243,18 @@ def summary_table(result) -> pd.DataFrame:
 
 
 if "roster" not in st.session_state:
-    st.session_state.roster = sample_roster()
+    st.session_state.roster = default_roster()
 elif isinstance(st.session_state.roster, pd.DataFrame):
     st.session_state.roster = roster_from_legacy_table(st.session_state.roster)
+
+if st.session_state.get("default_roster_version") != DEFAULT_ROSTER_VERSION:
+    current_names = {
+        str(record.get("name", "")).strip()
+        for record in st.session_state.roster
+    }
+    if current_names == LEGACY_SAMPLE_NAMES:
+        st.session_state.roster = default_roster()
+    st.session_state.default_roster_version = DEFAULT_ROSTER_VERSION
 
 if "next_player_id" not in st.session_state:
     st.session_state.next_player_id = len(st.session_state.roster) + 1
@@ -253,6 +326,14 @@ if st.button("＋ Add player", width="stretch"):
             "preferences": set(),
         }
     )
+    st.session_state.roster_revision += 1
+    st.session_state.result = None
+    st.session_state.error = None
+    st.rerun()
+
+if st.button("Reset to CSV defaults", width="stretch"):
+    st.session_state.roster = default_roster()
+    st.session_state.next_player_id = len(st.session_state.roster) + 1
     st.session_state.roster_revision += 1
     st.session_state.result = None
     st.session_state.error = None
