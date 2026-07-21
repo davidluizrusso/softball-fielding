@@ -282,26 +282,37 @@ with st.expander("Lineup rules", expanded=False):
 st.subheader("Who’s playing?")
 st.caption("Tap a name to toggle availability for this game.")
 
-player_ids = [str(record["id"]) for record in roster]
 player_labels = {
     str(record["id"]): str(record.get("name", "")).strip() or "Unnamed player"
     for record in roster
 }
-available_ids = st.pills(
-    "Available players",
-    options=player_ids,
-    default=[
-        str(record["id"])
-        for record in roster
-        if bool(record.get("available", False))
-    ],
-    format_func=lambda player_id: player_labels[player_id],
-    selection_mode="multi",
-    key=f"availability-{st.session_state.roster_revision}",
-    label_visibility="collapsed",
-    width="stretch",
-) or []
-available_id_set = set(available_ids)
+display_roster = sorted(
+    roster,
+    key=lambda record: (
+        0 if record.get("gender") == "Woman" else 1,
+        str(record.get("name", "")).strip().casefold(),
+    ),
+)
+
+available_id_set = set()
+for group_label, gender in (("Women", "Woman"), ("Men", "Man")):
+    group = [record for record in display_roster if record.get("gender") == gender]
+    group_ids = [str(record["id"]) for record in group]
+    selected_ids = st.pills(
+        group_label,
+        options=group_ids,
+        default=[
+            str(record["id"])
+            for record in group
+            if bool(record.get("available", False))
+        ],
+        format_func=lambda player_id: player_labels[player_id],
+        selection_mode="multi",
+        key=f"availability-{gender}-{st.session_state.roster_revision}",
+        width="stretch",
+    ) or []
+    available_id_set.update(selected_ids)
+
 for record in roster:
     record["available"] = str(record["id"]) in available_id_set
 
@@ -339,7 +350,7 @@ if st.button("Reset to CSV defaults", width="stretch"):
     st.session_state.error = None
     st.rerun()
 
-for index, record in enumerate(list(roster)):
+for index, record in enumerate(display_roster):
     player_id = str(record["id"])
     display_name = str(record.get("name", "")).strip() or f"Player {index + 1}"
     preference_summary = ", ".join(

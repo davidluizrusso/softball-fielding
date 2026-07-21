@@ -12,6 +12,19 @@ def test_app_loads_csv_defaults_and_optimizes():
     assert "SS" in next(
         record["preferences"] for record in roster if record["name"] == "Kevin"
     )
+    button_groups = app.get("button_group")
+    women_group = next(
+        group for group in button_groups if group.key.startswith("availability-Woman-")
+    )
+    men_group = next(
+        group for group in button_groups if group.key.startswith("availability-Man-")
+    )
+    assert [option.content for option in women_group.options] == sorted(
+        record["name"] for record in roster if record["gender"] == "Woman"
+    )
+    assert [option.content for option in men_group.options] == sorted(
+        record["name"] for record in roster if record["gender"] == "Man"
+    )
 
     optimize_button = next(
         button for button in app.button if button.label == "Optimize seven innings"
