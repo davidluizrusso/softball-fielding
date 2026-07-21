@@ -362,7 +362,7 @@ if result:
 
     view_mode = st.selectbox(
         "Lineup view",
-        options=["By inning", "Full matrix"],
+        options=["Full matrix", "By inning"],
         index=0,
         width="stretch",
     )

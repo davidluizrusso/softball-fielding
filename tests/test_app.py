@@ -18,8 +18,19 @@ def test_app_loads_and_sample_roster_optimizes():
         subheader.value == "Optimized lineup" for subheader in app.subheader
     )
     assert any(
-        selectbox.label == "Lineup view" and selectbox.value == "By inning"
+        selectbox.label == "Lineup view" and selectbox.value == "Full matrix"
         for selectbox in app.selectbox
     )
-    assert list(app.dataframe[0].value.columns) == ["Position", "Player"]
-    assert len(app.dataframe[0].value) == 10
+    assert list(app.dataframe[0].value.columns) == [
+        "P",
+        "C",
+        "1B",
+        "2B",
+        "3B",
+        "SS",
+        "LF",
+        "LC",
+        "RC",
+        "RF",
+    ]
+    assert len(app.dataframe[0].value) == 7
