@@ -1,6 +1,7 @@
 """Streamlit interface for the softball fielding optimizer."""
 
 from pathlib import Path
+from time import perf_counter
 from typing import Dict, List
 
 import pandas as pd
@@ -433,10 +434,13 @@ if (
 if optimize_clicked:
     try:
         available_players = players_from_roster(roster)
+        optimization_started = perf_counter()
         with st.spinner("Optimizing seven innings…"):
             result = optimize_game(available_players)
+        optimization_seconds = perf_counter() - optimization_started
         st.session_state.result = result
         st.session_state.result_fingerprint = current_fingerprint
+        st.session_state.optimization_seconds = optimization_seconds
         st.session_state.error = None
     except (LineupError, ValueError) as error:
         st.session_state.result = None
@@ -449,9 +453,16 @@ result = st.session_state.get("result")
 if result:
     st.divider()
     st.subheader("Optimized lineup")
+    elapsed_seconds = st.session_state.get("optimization_seconds")
+    timing_text = (
+        f" · Optimized in {elapsed_seconds:.2f} seconds"
+        if elapsed_seconds is not None
+        else ""
+    )
     st.caption(
         f"{result.lineup_size} fielders per inning · "
         f"Solver status: {result.solver_status.title()}"
+        f"{timing_text}"
     )
 
     view_mode = st.selectbox(

@@ -37,6 +37,10 @@ def test_app_loads_csv_defaults_and_optimizes():
         subheader.value == "Optimized lineup" for subheader in app.subheader
     )
     assert any(
+        "Optimized in" in caption.value and "seconds" in caption.value
+        for caption in app.caption
+    )
+    assert any(
         selectbox.label == "Lineup view" and selectbox.value == "Full matrix"
         for selectbox in app.selectbox
     )
