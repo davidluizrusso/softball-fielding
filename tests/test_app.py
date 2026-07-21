@@ -51,5 +51,10 @@ def test_app_loads_csv_defaults_and_optimizes():
         "LC",
         "RC",
         "RF",
+        "Out",
     ]
     assert len(app.dataframe[0].value) == 7
+    assert all(
+        len(players_out.split(", ")) == 5
+        for players_out in app.dataframe[0].value["Out"]
+    )

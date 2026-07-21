@@ -198,14 +198,16 @@ def schedule_table(result) -> pd.DataFrame:
     rows = []
     active = set(result.active_positions)
     for assignments in result.assignments:
-        rows.append(
-            {
-                position: (
-                    assignments.get(position, "—") if position in active else "—"
-                )
-                for position in POSITIONS
-            }
+        row = {
+            position: (
+                assignments.get(position, "—") if position in active else "—"
+            )
+            for position in POSITIONS
+        }
+        row["Out"] = ", ".join(
+            sorted(set(result.player_innings).difference(assignments.values()))
         )
+        rows.append(row)
     table = pd.DataFrame(rows, index=range(1, INNINGS + 1))
     table.index.name = "Inning"
     return table
