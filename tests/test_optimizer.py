@@ -28,6 +28,30 @@ def assert_legal(result, players, minimum_women):
         )
 
 
+def position_stint_lengths(result, player_name):
+    sequence = []
+    for inning in result.assignments:
+        sequence.append(
+            next(
+                (position for position, name in inning.items() if name == player_name),
+                None,
+            )
+        )
+
+    lengths = []
+    current_position = None
+    current_length = 0
+    for position in [*sequence, None]:
+        if position == current_position and position is not None:
+            current_length += 1
+            continue
+        if current_position is not None:
+            lengths.append(current_length)
+        current_position = position
+        current_length = 1 if position is not None else 0
+    return lengths
+
+
 def test_ten_player_lineup_is_legal_and_balanced():
     players = [
         player(f"W{index}", "Woman", *POSITIONS) for index in range(4)
@@ -39,6 +63,22 @@ def test_ten_player_lineup_is_legal_and_balanced():
     assert_legal(result, players, minimum_women=4)
     assert max(result.player_innings.values()) - min(result.player_innings.values()) <= 1
     assert all(len(positions) <= 2 for positions in result.player_positions.values())
+
+
+def test_position_stints_are_at_least_two_innings_when_possible():
+    players = [
+        player(f"W{index}", "Woman", *POSITIONS) for index in range(4)
+    ] + [player(f"M{index}", "Man", *POSITIONS) for index in range(8)]
+
+    result = optimize_game(players)
+
+    all_stints = [
+        length
+        for candidate in players
+        for length in position_stint_lengths(result, candidate.name)
+    ]
+    assert all_stints
+    assert min(all_stints) >= 2
 
 
 def test_nine_players_omit_rf_and_rf_preference_becomes_rc():

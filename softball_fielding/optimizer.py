@@ -1,6 +1,7 @@
 """Constraint-programming model for seven-inning defensive schedules."""
 
 from collections import Counter
+from time import monotonic
 from typing import Dict, Iterable, List, Sequence, Tuple
 
 from ortools.sat.python import cp_model
@@ -95,7 +96,7 @@ def _preflight_preferences(
 
 
 def optimize_game(
-    players: Iterable[Player], *, max_solve_seconds: float = 5.0
+    players: Iterable[Player], *, max_solve_seconds: float = 3.0
 ) -> ScheduleResult:
     """Build the fairest legal seven-inning schedule for available players."""
 
@@ -193,6 +194,10 @@ def optimize_game(
         deviations.append(deviation)
 
     excess_position_counts: List[cp_model.IntVar] = []
+    distinct_position_counts: List[cp_model.IntVar] = []
+    position_starts: List[cp_model.IntVar] = []
+    one_inning_stints: List[cp_model.IntVar] = []
+    two_inning_stints: List[cp_model.IntVar] = []
     for player_index, _player in enumerate(player_list):
         position_used = []
         for position in eligibility[player_index]:
@@ -206,28 +211,124 @@ def optimize_game(
             model.Add(used <= sum(inning_variables))
             position_used.append(used)
 
+            for inning, assignment in enumerate(inning_variables):
+                previous = inning_variables[inning - 1] if inning > 0 else None
+                following = (
+                    inning_variables[inning + 1] if inning + 1 < INNINGS else None
+                )
+
+                started = model.NewBoolVar(
+                    f"player_{player_index}_{position}_starts_{inning}"
+                )
+                if previous is None:
+                    model.Add(started == assignment)
+                else:
+                    model.Add(started <= assignment)
+                    model.Add(started + previous <= 1)
+                    model.Add(started >= assignment - previous)
+                position_starts.append(started)
+
+                one_inning = model.NewBoolVar(
+                    f"player_{player_index}_{position}_one_inning_{inning}"
+                )
+                model.Add(one_inning <= assignment)
+                lower_bound = assignment
+                if previous is not None:
+                    model.Add(one_inning + previous <= 1)
+                    lower_bound -= previous
+                if following is not None:
+                    model.Add(one_inning + following <= 1)
+                    lower_bound -= following
+                model.Add(one_inning >= lower_bound)
+                one_inning_stints.append(one_inning)
+
+            for inning in range(INNINGS - 1):
+                first = inning_variables[inning]
+                second = inning_variables[inning + 1]
+                previous = inning_variables[inning - 1] if inning > 0 else None
+                following = (
+                    inning_variables[inning + 2] if inning + 2 < INNINGS else None
+                )
+                two_inning = model.NewBoolVar(
+                    f"player_{player_index}_{position}_two_inning_{inning}"
+                )
+                model.Add(two_inning <= first)
+                model.Add(two_inning <= second)
+                lower_bound = first + second - 1
+                if previous is not None:
+                    model.Add(two_inning + previous <= 1)
+                    lower_bound -= previous
+                if following is not None:
+                    model.Add(two_inning + following <= 1)
+                    lower_bound -= following
+                model.Add(two_inning >= lower_bound)
+                two_inning_stints.append(two_inning)
+
         distinct_positions = model.NewIntVar(
             0, len(active_positions), f"distinct_positions_{player_index}"
         )
         model.Add(distinct_positions == sum(position_used))
+        distinct_position_counts.append(distinct_positions)
         excess_positions = model.NewIntVar(
             0, max(0, len(active_positions) - 2), f"excess_positions_{player_index}"
         )
         model.Add(excess_positions >= distinct_positions - 2)
         excess_position_counts.append(excess_positions)
 
-    max_excess_total = player_count * max(0, len(active_positions) - 2)
+    one_inning_cost = 1000
+    excess_position_cost = 200
+    two_inning_cost = 25
+    distinct_position_cost = 5
+    position_start_cost = 1
+
+    consistency_penalty = (
+        sum(one_inning_stints) * one_inning_cost
+        + sum(excess_position_counts) * excess_position_cost
+        + sum(two_inning_stints) * two_inning_cost
+        + sum(distinct_position_counts) * distinct_position_cost
+        + sum(position_starts) * position_start_cost
+    )
     max_deviation_total = player_count * maximum_scaled_deviation
-    deviation_weight = max_excess_total + 1
-    spread_weight = (max_deviation_total + 1) * deviation_weight
+    fairness_objective = (
+        playing_time_spread * (max_deviation_total + 1) + sum(deviations)
+    )
+    model.Minimize(fairness_objective)
+
+    started_at = monotonic()
+    fairness_solver = cp_model.CpSolver()
+    fairness_solver.parameters.max_time_in_seconds = min(
+        1.0, max(0.1, max_solve_seconds * 0.25)
+    )
+    fairness_solver.parameters.num_search_workers = 8
+    fairness_solver.parameters.random_seed = 42
+    fairness_status = fairness_solver.Solve(model)
+
+    if fairness_status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        if fairness_status == cp_model.INFEASIBLE:
+            raise LineupError(
+                "No legal schedule can satisfy all positional preferences and "
+                "gender rules. Try adding preferences or changing availability."
+            )
+        raise LineupError(
+            "The optimizer could not find a schedule within the time limit. "
+            "Please try again."
+        )
+
+    best_spread = fairness_solver.Value(playing_time_spread)
+    best_deviation = sum(fairness_solver.Value(item) for item in deviations)
+    model.Add(playing_time_spread == best_spread)
+    model.Add(sum(deviations) == best_deviation)
+    for variable in assignments.values():
+        model.AddHint(variable, fairness_solver.Value(variable))
+
     model.Minimize(
-        playing_time_spread * spread_weight
-        + sum(deviations) * deviation_weight
-        + sum(excess_position_counts)
+        consistency_penalty
     )
 
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = max_solve_seconds
+    solver.parameters.max_time_in_seconds = max(
+        0.1, max_solve_seconds - (monotonic() - started_at)
+    )
     solver.parameters.num_search_workers = 8
     solver.parameters.random_seed = 42
     status = solver.Solve(model)

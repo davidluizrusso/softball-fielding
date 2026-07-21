@@ -59,10 +59,15 @@ After satisfying all hard rules, optimize in this order:
 
 1. Minimize the spread between the most and least innings played.
 2. Minimize total deviation from an equal share of the available innings.
-3. Minimize the number of positions beyond two used by each player.
+3. Strongly discourage one-inning position stints.
+4. Minimize distinct positions, with an additional penalty beyond two.
+5. Prefer stints of at least three innings over two-inning stints.
+6. Minimize position starts so longer continuous runs win remaining ties.
 
 The two-position target is soft and may be exceeded to improve higher-priority
-goals or produce a feasible schedule.
+goals or produce a feasible schedule. Position-stint targets are also soft. A
+stint is a run of consecutive innings at one position; sitting out ends the
+stint, even when the player later returns to the same position.
 
 ## Output
 
