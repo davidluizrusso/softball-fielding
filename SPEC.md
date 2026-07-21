@@ -8,10 +8,10 @@ than two positions when possible.
 
 ## Inputs
 
-- Roster name
+- Roster name, entered in a player card
 - Gender (`Woman` or `Man`)
-- Availability for the game
-- Unranked positional preferences
+- Availability for the game, toggled from a tap-friendly player list
+- Unranked positional preferences, selected from wrapping position buttons
 
 Preferences are hard eligibility rules: a player may not be assigned to an
 unlisted position.

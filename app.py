@@ -18,15 +18,40 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .block-container {max-width: 1200px; padding-top: 2rem;}
-    [data-testid="stMetricValue"] {font-size: 1.65rem;}
+    .block-container {
+        max-width: 1100px;
+        padding-top: 1.75rem;
+        padding-bottom: 4rem;
+    }
+    [data-testid="stButton"] button {
+        min-height: 2.75rem;
+    }
+    [data-testid="stExpander"] summary {
+        min-height: 3rem;
+    }
+    @media (max-width: 640px) {
+        .block-container {
+            padding: 0.8rem 0.75rem 3rem;
+        }
+        h1 {
+            font-size: 1.85rem !important;
+            line-height: 1.15 !important;
+        }
+        h2, h3 {
+            line-height: 1.2 !important;
+        }
+        [data-testid="stButton"] button,
+        [data-testid="stExpander"] summary {
+            min-height: 3rem;
+        }
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 
-def sample_roster() -> pd.DataFrame:
+def sample_roster() -> List[Dict[str, object]]:
     rows = [
         ("Alex", "Woman", True, {"P", "1B", "2B"}),
         ("Blair", "Woman", True, {"C", "2B", "SS"}),
@@ -41,41 +66,101 @@ def sample_roster() -> pd.DataFrame:
         ("Logan", "Man", True, {"2B", "LF"}),
         ("Morgan", "Man", True, {"C", "3B", "RC"}),
     ]
-    records: List[Dict[str, object]] = []
-    for name, gender, available, preferences in rows:
-        record: Dict[str, object] = {
-            "Name": name,
-            "Gender": gender,
-            "Available": available,
+    return [
+        {
+            "id": f"player-{index}",
+            "name": name,
+            "gender": gender,
+            "available": available,
+            "preferences": set(preferences),
         }
-        record.update({position: position in preferences for position in POSITIONS})
-        records.append(record)
-    return pd.DataFrame(records)
+        for index, (name, gender, available, preferences) in enumerate(rows, start=1)
+    ]
 
 
-def players_from_table(table: pd.DataFrame) -> List[Player]:
-    players = []
-    for _, row in table.iterrows():
-        name = str(row.get("Name", "")).strip()
-        if not name or not bool(row.get("Available", False)):
-            continue
-        gender = str(row.get("Gender", ""))
-        preferences = frozenset(
-            position for position in POSITIONS if bool(row.get(position, False))
+def roster_from_legacy_table(table: pd.DataFrame) -> List[Dict[str, object]]:
+    """Preserve roster edits made before the mobile card interface existed."""
+
+    roster = []
+    for index, (_, row) in enumerate(table.iterrows(), start=1):
+        roster.append(
+            {
+                "id": f"player-{index}",
+                "name": str(row.get("Name", "")).strip(),
+                "gender": str(row.get("Gender", "Woman")),
+                "available": bool(row.get("Available", False)),
+                "preferences": {
+                    position for position in POSITIONS if bool(row.get(position, False))
+                },
+            }
         )
-        players.append(Player(name=name, gender=gender, preferences=preferences))
+    return roster
+
+
+def players_from_roster(roster: List[Dict[str, object]]) -> List[Player]:
+    players = []
+    for record in roster:
+        name = str(record.get("name", "")).strip()
+        if not name or not bool(record.get("available", False)):
+            continue
+        players.append(
+            Player(
+                name=name,
+                gender=str(record.get("gender", "")),
+                preferences=frozenset(record.get("preferences", set())),
+            )
+        )
     return players
+
+
+def roster_fingerprint(roster: List[Dict[str, object]]) -> tuple:
+    return tuple(
+        (
+            record["id"],
+            str(record.get("name", "")).strip(),
+            record.get("gender"),
+            bool(record.get("available", False)),
+            tuple(
+                position
+                for position in POSITIONS
+                if position in record.get("preferences", set())
+            ),
+        )
+        for record in roster
+    )
 
 
 def schedule_table(result) -> pd.DataFrame:
     rows = []
     active = set(result.active_positions)
-    for inning, assignments in enumerate(result.assignments, start=1):
-        row = {position: assignments.get(position, "—") if position in active else "—" for position in POSITIONS}
-        rows.append(row)
+    for assignments in result.assignments:
+        rows.append(
+            {
+                position: (
+                    assignments.get(position, "—") if position in active else "—"
+                )
+                for position in POSITIONS
+            }
+        )
     table = pd.DataFrame(rows, index=range(1, INNINGS + 1))
     table.index.name = "Inning"
     return table
+
+
+def inning_table(result, inning_number: int) -> pd.DataFrame:
+    assignments = result.assignments[inning_number - 1]
+    active = set(result.active_positions)
+    return pd.DataFrame(
+        [
+            {
+                "Position": position,
+                "Player": (
+                    assignments.get(position, "—") if position in active else "—"
+                ),
+            }
+            for position in POSITIONS
+        ]
+    )
 
 
 def summary_table(result) -> pd.DataFrame:
@@ -93,6 +178,18 @@ def summary_table(result) -> pd.DataFrame:
     )
 
 
+if "roster" not in st.session_state:
+    st.session_state.roster = sample_roster()
+elif isinstance(st.session_state.roster, pd.DataFrame):
+    st.session_state.roster = roster_from_legacy_table(st.session_state.roster)
+
+if "next_player_id" not in st.session_state:
+    st.session_state.next_player_id = len(st.session_state.roster) + 1
+if "roster_revision" not in st.session_state:
+    st.session_state.roster_revision = 0
+
+roster: List[Dict[str, object]] = st.session_state.roster
+
 st.title("🥎 Softball Fielding Optimizer")
 st.caption(
     "Build a legal seven-inning lineup while balancing playing time and keeping positions consistent."
@@ -109,66 +206,143 @@ with st.expander("Lineup rules", expanded=False):
         """
     )
 
-st.subheader("Game roster")
-st.write("Add players, mark who is available, and select every position each player can play.")
+st.subheader("Who’s playing?")
+st.caption("Tap a name to toggle availability for this game.")
 
-if "roster" not in st.session_state:
-    st.session_state.roster = sample_roster()
-
-column_config = {
-    "Name": st.column_config.TextColumn("Name", required=True, width="medium"),
-    "Gender": st.column_config.SelectboxColumn(
-        "Gender", options=["Woman", "Man"], required=True, width="small"
-    ),
-    "Available": st.column_config.CheckboxColumn("Available", default=True),
+player_ids = [str(record["id"]) for record in roster]
+player_labels = {
+    str(record["id"]): str(record.get("name", "")).strip() or "Unnamed player"
+    for record in roster
 }
-column_config.update(
-    {
-        position: st.column_config.CheckboxColumn(position, default=False, width="small")
-        for position in POSITIONS
-    }
+available_ids = st.pills(
+    "Available players",
+    options=player_ids,
+    default=[
+        str(record["id"])
+        for record in roster
+        if bool(record.get("available", False))
+    ],
+    format_func=lambda player_id: player_labels[player_id],
+    selection_mode="multi",
+    key=f"availability-{st.session_state.roster_revision}",
+    label_visibility="collapsed",
+    width="stretch",
+) or []
+available_id_set = set(available_ids)
+for record in roster:
+    record["available"] = str(record["id"]) in available_id_set
+
+availability_status = st.empty()
+optimize_clicked = st.button(
+    "Optimize seven innings", type="primary", width="stretch"
 )
 
-previous_roster = st.session_state.roster
-edited_roster = st.data_editor(
-    st.session_state.roster,
-    column_config=column_config,
-    column_order=["Name", "Gender", "Available", *POSITIONS],
-    hide_index=True,
-    num_rows="dynamic",
-    width="stretch",
-    key="roster_editor",
-)
-if not edited_roster.equals(previous_roster):
+st.divider()
+st.subheader("Player details & preferences")
+st.caption("Open a player card to edit their name, gender, or positions.")
+
+if st.button("＋ Add player", width="stretch"):
+    new_id = st.session_state.next_player_id
+    st.session_state.next_player_id += 1
+    roster.append(
+        {
+            "id": f"player-{new_id}",
+            "name": "",
+            "gender": "Woman",
+            "available": True,
+            "preferences": set(),
+        }
+    )
+    st.session_state.roster_revision += 1
     st.session_state.result = None
     st.session_state.error = None
-st.session_state.roster = edited_roster
+    st.rerun()
 
-available_count = int(edited_roster["Available"].fillna(False).sum())
-available_women = int(
-    (
-        edited_roster["Available"].fillna(False)
-        & edited_roster["Gender"].eq("Woman")
-    ).sum()
+for index, record in enumerate(list(roster)):
+    player_id = str(record["id"])
+    display_name = str(record.get("name", "")).strip() or f"Player {index + 1}"
+    preference_summary = ", ".join(
+        position
+        for position in POSITIONS
+        if position in record.get("preferences", set())
+    ) or "No positions yet"
+    availability_label = "Available" if record.get("available") else "Out"
+    card_label = (
+        f"{display_name} · {record.get('gender')} · {availability_label} · "
+        f"{preference_summary}"
+    )
+
+    with st.expander(card_label, expanded=not bool(str(record.get("name", "")).strip())):
+        record["name"] = st.text_input(
+            "Player name",
+            value=str(record.get("name", "")),
+            key=f"name-{player_id}",
+        )
+        record["gender"] = st.selectbox(
+            "Gender",
+            options=["Woman", "Man"],
+            index=0 if record.get("gender") == "Woman" else 1,
+            key=f"gender-{player_id}",
+            width="stretch",
+        )
+        record["preferences"] = set(
+            st.pills(
+                "Position preferences",
+                options=list(POSITIONS),
+                default=[
+                    position
+                    for position in POSITIONS
+                    if position in record.get("preferences", set())
+                ],
+                selection_mode="multi",
+                key=f"preferences-{player_id}",
+                width="stretch",
+            )
+            or []
+        )
+        if st.button(
+            f"Remove {display_name}",
+            key=f"remove-{player_id}",
+            width="stretch",
+        ):
+            st.session_state.roster = [
+                candidate
+                for candidate in roster
+                if str(candidate["id"]) != player_id
+            ]
+            st.session_state.roster_revision += 1
+            st.session_state.result = None
+            st.session_state.error = None
+            st.rerun()
+
+named_available = [
+    record
+    for record in roster
+    if bool(str(record.get("name", "")).strip()) and record.get("available")
+]
+available_women = sum(
+    record.get("gender") == "Woman" for record in named_available
+)
+availability_status.caption(
+    f"**{len(named_available)} available players** · "
+    f"**{available_women} available women**"
 )
 
-metric_one, metric_two, action = st.columns([1, 1, 2])
-metric_one.metric("Available players", available_count)
-metric_two.metric("Available women", available_women)
-
-with action:
-    st.write("")
-    st.write("")
-    optimize_clicked = st.button(
-        "Optimize lineup", type="primary", width="stretch"
-    )
+current_fingerprint = roster_fingerprint(roster)
+if (
+    st.session_state.get("result")
+    and st.session_state.get("result_fingerprint") != current_fingerprint
+):
+    st.session_state.result = None
+    st.session_state.error = None
 
 if optimize_clicked:
     try:
-        available_players = players_from_table(edited_roster)
+        available_players = players_from_roster(roster)
         with st.spinner("Optimizing seven innings…"):
             result = optimize_game(available_players)
         st.session_state.result = result
+        st.session_state.result_fingerprint = current_fingerprint
         st.session_state.error = None
     except (LineupError, ValueError) as error:
         st.session_state.result = None
@@ -181,17 +355,43 @@ result = st.session_state.get("result")
 if result:
     st.divider()
     st.subheader("Optimized lineup")
-    status_col, size_col = st.columns(2)
-    status_col.metric("Solver status", result.solver_status.title())
-    size_col.metric("Fielders per inning", result.lineup_size)
+    st.caption(
+        f"{result.lineup_size} fielders per inning · "
+        f"Solver status: {result.solver_status.title()}"
+    )
 
+    view_mode = st.selectbox(
+        "Lineup view",
+        options=["By inning", "Full matrix"],
+        index=0,
+        width="stretch",
+    )
     lineup = schedule_table(result)
-    st.dataframe(lineup, width="stretch")
+
+    if view_mode == "Full matrix":
+        st.dataframe(lineup, width="stretch")
+    else:
+        inning_number = st.selectbox(
+            "Inning",
+            options=list(range(1, INNINGS + 1)),
+            index=0,
+            width="stretch",
+        )
+        st.dataframe(
+            inning_table(result, int(inning_number)),
+            hide_index=True,
+            width="stretch",
+        )
+        assigned_names = set(result.assignments[int(inning_number) - 1].values())
+        bench = sorted(set(result.player_innings).difference(assigned_names))
+        st.caption("**Bench:** " + (", ".join(bench) if bench else "None"))
+
     st.download_button(
-        "Download lineup CSV",
+        "Download full lineup CSV",
         lineup.to_csv().encode("utf-8"),
         file_name="softball_lineup.csv",
         mime="text/csv",
+        width="stretch",
     )
 
     st.subheader("Playing time")
