@@ -38,3 +38,7 @@ See [SPEC.md](SPEC.md) for the lineup rules and optimization priorities.
 The optimization formulation and deployment notes are available as
 [LaTeX source](docs/softball_fielding_optimization.tex) and a
 [compiled PDF](docs/softball_fielding_optimization.pdf).
+
+The lineup rules are also memorialized in the substantially more ominous
+[Defensive Lineup Compliance Code](docs/defensive_lineup_compliance_code.pdf),
+with its corresponding [LaTeX source](docs/defensive_lineup_compliance_code.tex).
