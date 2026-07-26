@@ -32,3 +32,9 @@ an `Available` column. The app accepts `Yes`, `Y`, `True`, `1`, or `X` as a
 selected position.
 
 See [SPEC.md](SPEC.md) for the lineup rules and optimization priorities.
+
+## Technical paper
+
+The optimization formulation and deployment notes are available as
+[LaTeX source](docs/softball_fielding_optimization.tex) and a
+[compiled PDF](docs/softball_fielding_optimization.pdf).

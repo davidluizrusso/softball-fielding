@@ -3,3 +3,11 @@ __pycache__/
 .pytest_cache/
 *.py[cod]
 .DS_Store
+
+# LaTeX intermediate files (keep compiled PDFs)
+docs/*.aux
+docs/*.fdb_latexmk
+docs/*.fls
+docs/*.log
+docs/*.out
+docs/*.synctex.gz
