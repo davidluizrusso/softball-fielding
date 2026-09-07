@@ -57,6 +57,10 @@ async function cancelEditor(page, testInfo) {
 }
 
 async function selectedGender(page) {
+  const value = await genderSelector(page).inputValue();
+  if (value === "Woman" || value === "Man") {
+    return value;
+  }
   const label = await genderSelector(page).getAttribute("aria-label");
   return label?.match(/^Selected (Woman|Man)\./)?.[1] ?? null;
 }
@@ -73,10 +77,13 @@ async function chooseGender(page, gender, testInfo) {
 async function selectedPositions(page) {
   const selected = [];
   for (const position of POSITIONS) {
-    if (
-      await positionButton(page, position).getAttribute("data-testid")
-      === "stBaseButton-pillsActive"
-    ) {
+    const button = positionButton(page, position);
+    const testId = await button.getAttribute("data-testid");
+    const ariaPressed = await button.getAttribute("aria-pressed");
+    const dataSelected = await button.getAttribute("data-selected");
+    if (testId === "stBaseButton-pillsActive"
+      || ariaPressed === "true"
+      || dataSelected === "true") {
       selected.push(position);
     }
   }
@@ -103,20 +110,18 @@ test("issue #8 saves every individual edit and Cancel discards a draft", async (
 
     for (const position of POSITIONS) {
       await activate(positionButton(page, position), testInfo);
-      await expect(positionButton(page, position)).toHaveAttribute(
-        "data-testid",
-        "stBaseButton-pillsActive",
-      );
+      await expect.poll(
+        async () => (await selectedPositions(page)).includes(position),
+      ).toBe(true);
     }
     await expect.poll(() => selectedPositions(page)).toEqual(POSITIONS);
     for (const position of POSITIONS.filter(
       (candidate) => !NEW_PLAYER_POSITIONS.includes(candidate),
     )) {
       await activate(positionButton(page, position), testInfo);
-      await expect(positionButton(page, position)).toHaveAttribute(
-        "data-testid",
-        "stBaseButton-pills",
-      );
+      await expect.poll(
+        async () => (await selectedPositions(page)).includes(position),
+      ).toBe(false);
     }
     await expect.poll(() => selectedPositions(page)).toEqual(NEW_PLAYER_POSITIONS);
 

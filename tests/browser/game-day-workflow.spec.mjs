@@ -12,10 +12,16 @@ async function choose(page, label, option, testInfo) {
   const combobox = page.getByRole("combobox", { name: new RegExp(label) });
   await activate(combobox, testInfo);
   await activate(page.getByRole("option", { name: option, exact: true }), testInfo);
-  await expect(combobox).toHaveAttribute(
-    "aria-label",
-    new RegExp(`Selected ${option.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.`),
-  );
+  await expect.poll(async () => selectedChoice(combobox)).toBe(option);
+}
+
+async function selectedChoice(combobox) {
+  const value = await combobox.inputValue();
+  if (value) {
+    return value;
+  }
+  const label = await combobox.getAttribute("aria-label");
+  return label?.match(/^Selected (.*?)\./)?.[1] ?? null;
 }
 
 async function downloadText(download) {
@@ -45,7 +51,7 @@ test("issues #1, #3, and #6 keep the game-day outcome visible and current", asyn
   ), await detailsHeading.elementHandle())).toBe(true);
 
   const lineupView = page.getByRole("combobox", { name: /Lineup view/ });
-  await expect(lineupView).toHaveAttribute("aria-label", /Selected By inning\./);
+  await expect.poll(async () => selectedChoice(lineupView)).toBe("By inning");
   await expect(page.locator("[data-testid='stDataFrame']").first()).toBeVisible();
   await expect(page.getByText(/Bench:/)).toBeVisible();
   if (testInfo.project.name === "mobile-touch") {
