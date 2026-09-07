@@ -70,11 +70,12 @@ async function chooseGender(page, gender, testInfo) {
     return;
   }
   const combobox = genderSelector(page);
-  const openButton = combobox.locator("xpath=..").getByRole("button", {
-    name: "Open",
-    exact: true,
-  });
-  await activate(await openButton.count() ? openButton : combobox, testInfo);
+  if (testInfo.project.name === "mobile-touch") {
+    await activate(combobox, testInfo);
+  } else {
+    await combobox.focus();
+    await combobox.press("ArrowDown");
+  }
   await activate(page.getByRole("option", { name: gender, exact: true }), testInfo);
   await expect.poll(() => selectedGender(page)).toBe(gender);
 }
