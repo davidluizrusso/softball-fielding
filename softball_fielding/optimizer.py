@@ -512,25 +512,61 @@ def optimize_game(
     if one_inning_proven:
         # Once short stints are fixed, independently secure the two-position
         # target before spending the remaining budget on lower-order polish.
-        model.Minimize(sum(excess_position_counts))
-        excess_solver = cp_model.CpSolver()
-        excess_solver.parameters.max_time_in_seconds = min(
+        ideal_excess_model = model.clone()
+        for excess_positions in excess_position_counts:
+            ideal_excess_model.Add(excess_positions == 0)
+        ideal_excess_model.Minimize(0)
+        ideal_excess_solver = cp_model.CpSolver()
+        ideal_excess_solver.parameters.max_time_in_seconds = min(
             1.0,
             max(0.1, (max_solve_seconds - (monotonic() - started_at)) * 0.35),
         )
-        excess_solver.parameters.num_search_workers = 8
-        excess_solver.parameters.random_seed = 42
-        excess_status = excess_solver.Solve(model)
+        ideal_excess_solver.parameters.num_search_workers = 8
+        ideal_excess_solver.parameters.random_seed = 42
+        ideal_excess_status = ideal_excess_solver.Solve(ideal_excess_model)
+
+        if ideal_excess_status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            excess_solver = ideal_excess_solver
+            excess_status = ideal_excess_status
+            best_excess_positions = 0
+            excess_proven = True
+        else:
+            model.Minimize(sum(excess_position_counts))
+            excess_solver = cp_model.CpSolver()
+            excess_solver.parameters.max_time_in_seconds = min(
+                1.0,
+                max(
+                    0.1,
+                    (max_solve_seconds - (monotonic() - started_at)) * 0.35,
+                ),
+            )
+            excess_solver.parameters.num_search_workers = 8
+            excess_solver.parameters.random_seed = 42
+            excess_status = excess_solver.Solve(model)
+            best_excess_positions = (
+                sum(excess_solver.Value(item) for item in excess_position_counts)
+                if excess_status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
+                else 0
+            )
+            excess_proven = (
+                excess_status == cp_model.OPTIMAL
+                or (
+                    excess_status == cp_model.FEASIBLE
+                    and best_excess_positions == 0
+                )
+            )
+
         if excess_status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             solution_solver = excess_solver
             solution_status = excess_status
-            best_excess_positions = sum(
-                excess_solver.Value(item) for item in excess_position_counts
-            )
-            if excess_status == cp_model.OPTIMAL or best_excess_positions == 0:
-                model.Add(
-                    sum(excess_position_counts) == best_excess_positions
-                )
+            if excess_proven:
+                if best_excess_positions == 0:
+                    for excess_positions in excess_position_counts:
+                        model.Add(excess_positions == 0)
+                else:
+                    model.Add(
+                        sum(excess_position_counts) == best_excess_positions
+                    )
             model.clear_hints()
             for variable in (*assignments.values(), *bench_assignments.values()):
                 model.AddHint(variable, excess_solver.Value(variable))
