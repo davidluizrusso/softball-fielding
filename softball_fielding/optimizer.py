@@ -264,7 +264,11 @@ def optimize_game(
     state_transitions: List[cp_model.IntVar] = []
     one_inning_stints: List[cp_model.IntVar] = []
     two_inning_stints: List[cp_model.IntVar] = []
+    field_one_inning_by_player: Dict[int, List[cp_model.IntVar]] = {}
+    bench_one_inning_by_player: Dict[int, List[cp_model.IntVar]] = {}
     for player_index, _player in enumerate(player_list):
+        field_one_inning_by_player[player_index] = []
+        bench_one_inning_by_player[player_index] = []
         position_used = []
         for position in eligibility[player_index]:
             used = model.NewBoolVar(f"player_{player_index}_uses_{position}")
@@ -318,6 +322,10 @@ def optimize_game(
                     lower_bound -= following
                 model.Add(one_inning >= lower_bound)
                 one_inning_stints.append(one_inning)
+                if state == BENCH_STATE:
+                    bench_one_inning_by_player[player_index].append(one_inning)
+                else:
+                    field_one_inning_by_player[player_index].append(one_inning)
 
             for inning in range(INNINGS - 1):
                 first = inning_variables[inning]
@@ -352,18 +360,22 @@ def optimize_game(
         model.Add(excess_positions >= distinct_positions - 2)
         excess_position_counts.append(excess_positions)
 
-    unavoidable_one_inning_states: List[cp_model.IntVar] = []
+    ideal_one_inning_groups = []
     for player_index, count in enumerate(innings_played):
-        for state_name, target_innings in (
-            ("field", 1),
-            ("bench", INNINGS - 1),
+        for state_name, target_innings, stint_variables in (
+            ("field", 1, field_one_inning_by_player[player_index]),
+            (
+                "bench",
+                INNINGS - 1,
+                bench_one_inning_by_player[player_index],
+            ),
         ):
             is_singleton = model.NewBoolVar(
                 f"player_{player_index}_unavoidable_one_inning_{state_name}"
             )
             model.Add(count == target_innings).OnlyEnforceIf(is_singleton)
             model.Add(count != target_innings).OnlyEnforceIf(is_singleton.Not())
-            unavoidable_one_inning_states.append(is_singleton)
+            ideal_one_inning_groups.append((stint_variables, is_singleton))
 
     # Each coefficient is larger than the maximum possible contribution of
     # every lower-priority term. This encodes the documented lexicographic
@@ -438,9 +450,10 @@ def optimize_game(
     # inning. Feasibility is substantially easier to establish than proving a
     # weighted optimum on broad, interchangeable rosters.
     ideal_stints_model = model.clone()
-    ideal_stints_model.Add(
-        sum(one_inning_stints) == sum(unavoidable_one_inning_states)
-    )
+    for stint_variables, unavoidable_singleton in ideal_one_inning_groups:
+        ideal_stints_model.Add(
+            sum(stint_variables) == unavoidable_singleton
+        )
     ideal_stints_model.Minimize(0)
     ideal_stints_solver = cp_model.CpSolver()
     ideal_stints_solver.parameters.max_time_in_seconds = min(
@@ -488,7 +501,8 @@ def optimize_game(
         )
 
     if one_inning_proven:
-        model.Add(sum(one_inning_stints) == best_one_inning)
+        for stint_variables, unavoidable_singleton in ideal_one_inning_groups:
+            model.Add(sum(stint_variables) == unavoidable_singleton)
     model.clear_hints()
     for variable in (*assignments.values(), *bench_assignments.values()):
         model.AddHint(variable, one_inning_solver.Value(variable))
