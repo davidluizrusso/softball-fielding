@@ -57,7 +57,9 @@ test("issues #1, #3, and #6 keep the game-day outcome visible and current", asyn
 
   const lineupView = page.getByRole("combobox", { name: /Lineup view/ });
   await expect.poll(async () => selectedChoice(lineupView)).toBe("By inning");
-  await expect(page.locator("[data-testid='stDataFrame']").first()).toBeVisible();
+  await expect(
+    page.getByRole("table", { name: "Inning 1 assignments" }),
+  ).toBeVisible();
   await expect(page.getByText(/Bench:/)).toBeVisible();
   if (testInfo.project.name === "mobile-touch") {
     expect(await page.evaluate(
@@ -67,7 +69,9 @@ test("issues #1, #3, and #6 keep the game-day outcome visible and current", asyn
 
   for (const inning of [2, 3, 4, 5, 6, 7, 1]) {
     await choose(page, "Inning", String(inning), testInfo);
-    await expect(page.locator("[data-testid='stDataFrame']").first()).toBeVisible();
+    await expect(
+      page.getByRole("table", { name: `Inning ${inning} assignments` }),
+    ).toBeVisible();
   }
 
   await choose(page, "Lineup view", "Full matrix", testInfo);

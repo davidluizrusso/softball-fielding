@@ -1,5 +1,6 @@
 """Streamlit interface for the softball fielding optimizer."""
 
+from html import escape
 from pathlib import Path
 from time import perf_counter
 from typing import Dict, List
@@ -41,6 +42,23 @@ st.markdown(
     [data-testid="stCheckbox"] label {
         min-height: 2.75rem;
         align-items: center;
+    }
+    .accessible-lineup-table {
+        border-collapse: collapse;
+        table-layout: fixed;
+        width: 100%;
+    }
+    .accessible-lineup-table th,
+    .accessible-lineup-table td {
+        border-bottom: 1px solid rgba(49, 51, 63, 0.2);
+        overflow-wrap: anywhere;
+        padding: 0.5rem;
+        text-align: left;
+        vertical-align: top;
+    }
+    .accessible-lineup-table th:first-child,
+    .accessible-lineup-table td:first-child {
+        width: 5rem;
     }
     @media (max-width: 640px) {
         .block-container {
@@ -365,6 +383,30 @@ def inning_table(result, inning_number: int) -> pd.DataFrame:
     )
 
 
+def accessible_inning_table(result, inning_number: int) -> str:
+    """Return the inning assignments as an accessible semantic table."""
+
+    heading_id = f"inning-{inning_number}-assignments"
+    rows = "".join(
+        "<tr>"
+        f"<td>{escape(str(position))}</td>"
+        f"<td>{escape(str(player))}</td>"
+        "</tr>"
+        for position, player in inning_table(result, inning_number).itertuples(
+            index=False,
+            name=None,
+        )
+    )
+    return (
+        f'<h4 id="{heading_id}">Inning {inning_number} assignments</h4>'
+        f'<table class="accessible-lineup-table" aria-labelledby="{heading_id}" '
+        f'aria-label="Inning {inning_number} assignments">'
+        "<thead><tr><th scope=\"col\">Position</th>"
+        "<th scope=\"col\">Player</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table>"
+    )
+
+
 def summary_table(result) -> pd.DataFrame:
     return pd.DataFrame(
         [
@@ -676,10 +718,9 @@ if result:
             width="stretch",
             disabled=interaction_locked,
         )
-        st.dataframe(
-            inning_table(result, int(inning_number)),
-            hide_index=True,
-            width="stretch",
+        st.markdown(
+            accessible_inning_table(result, int(inning_number)),
+            unsafe_allow_html=True,
         )
         assigned_names = set(result.assignments[int(inning_number) - 1].values())
         bench = sorted(set(result.player_innings).difference(assigned_names))

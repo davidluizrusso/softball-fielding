@@ -135,8 +135,14 @@ def test_app_loads_csv_defaults_and_optimizes(monkeypatch):
         selectbox for selectbox in app.selectbox if selectbox.label == "Inning"
     )
     inning_selector.set_value(7).run(timeout=20)
-    assert list(app.dataframe[0].value.columns) == ["Position", "Player"]
-    assert len(app.dataframe[0].value) == len(POSITIONS)
+    semantic_lineup = next(
+        markdown.value
+        for markdown in app.markdown
+        if '<table class="accessible-lineup-table"' in markdown.value
+    )
+    assert "Inning 7 assignments" in semantic_lineup
+    assert semantic_lineup.count("<tr>") == len(POSITIONS) + 1
+    assert semantic_lineup.count("<td>") == len(POSITIONS) * 2
     assert any(
         caption.value.startswith("**Bench:**") for caption in app.caption
     )
@@ -505,6 +511,38 @@ def test_noop_player_save_preserves_current_error(monkeypatch):
     assert not any(
         info.value == "Inputs changed — optimize again." for info in app.info
     )
+
+
+def test_semantic_lineup_escapes_player_names(monkeypatch):
+    optimizer = Mock(side_effect=fake_result)
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
+    dung_id = next(
+        record["id"]
+        for record in app.session_state["roster"]
+        if record["name"] == "Dung"
+    )
+    next(button for button in app.button if button.label == "Edit Dung").click().run(
+        timeout=20
+    )
+    hostile_name = "<img src=x onerror=alert(1)>"
+    element_with_key_prefix(app.text_input, f"draft-name-{dung_id}").set_value(
+        hostile_name
+    )
+    next(button for button in app.button if button.label == "Save changes").click().run(
+        timeout=20
+    )
+    next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    ).click().run(timeout=20)
+
+    semantic_lineup = next(
+        markdown.value
+        for markdown in app.markdown
+        if '<table class="accessible-lineup-table"' in markdown.value
+    )
+    assert hostile_name not in semantic_lineup
+    assert "&lt;img src=x onerror=alert(1)&gt;" in semantic_lineup
 
 
 def test_destructive_action_cancellation_preserves_roster(monkeypatch):

@@ -9,6 +9,7 @@
     "test:browser": "playwright test"
   },
   "devDependencies": {
-    "@playwright/test": "1.63.0"
+    "@playwright/test": "1.63.0",
+    "csv-parse": "7.0.2"
   }
 }

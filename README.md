@@ -3,6 +3,8 @@
 A small web app that creates legal seven-inning slowpitch defensive
 assignments, balances playing time, and limits positional churn. Select the
 default Co-ed rules or an Open profile with no gender-based fielding minimums.
+The deployment is team-neutral: different teams can use either rules profile
+in independent browser sessions without replacing one another's game setup.
 
 ## Run locally
 
@@ -39,6 +41,10 @@ The initial roster, genders, and positional preferences are loaded from
 `roster_positions.csv`. Everyone defaults to available unless the file includes
 an `Available` column. The app accepts `Yes`, `Y`, `True`, `1`, or `X` as a
 selected position.
+
+The default inning view is a semantic two-column table for screen-reader and
+mobile access. The complete seven-inning matrix remains available on screen and
+as a CSV download.
 
 See [SPEC.md](SPEC.md) for the lineup rules and optimization priorities.
 

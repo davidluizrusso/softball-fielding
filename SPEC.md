@@ -98,6 +98,8 @@ transition.
 ## Output
 
 - A matrix with innings 1–7 as rows and all ten positions as columns.
+- An inning-by-inning semantic table exposing position and player assignments
+  to assistive technology.
 - Inactive positions are shown as `—`.
 - A playing-time summary showing innings played and positions used.
 - A clear explanation when no feasible schedule exists.
