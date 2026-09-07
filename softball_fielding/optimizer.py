@@ -352,6 +352,19 @@ def optimize_game(
         model.Add(excess_positions >= distinct_positions - 2)
         excess_position_counts.append(excess_positions)
 
+    unavoidable_one_inning_states: List[cp_model.IntVar] = []
+    for player_index, count in enumerate(innings_played):
+        for state_name, target_innings in (
+            ("field", 1),
+            ("bench", INNINGS - 1),
+        ):
+            is_singleton = model.NewBoolVar(
+                f"player_{player_index}_unavoidable_one_inning_{state_name}"
+            )
+            model.Add(count == target_innings).OnlyEnforceIf(is_singleton)
+            model.Add(count != target_innings).OnlyEnforceIf(is_singleton.Not())
+            unavoidable_one_inning_states.append(is_singleton)
+
     # Each coefficient is larger than the maximum possible contribution of
     # every lower-priority term. This encodes the documented lexicographic
     # order without requiring five additional solver passes.
@@ -420,31 +433,60 @@ def optimize_game(
     for variable in (*assignments.values(), *bench_assignments.values()):
         model.AddHint(variable, fairness_solver.Value(variable))
 
-    # Find the highest-priority continuity target on its own first. In broad,
-    # interchangeable rosters this reaches the obvious lower bound (zero)
-    # much more reliably than asking one weighted search to navigate every
-    # lower-priority tie at once.
-    model.Minimize(sum(one_inning_stints))
-    one_inning_solver = cp_model.CpSolver()
-    one_inning_solver.parameters.max_time_in_seconds = min(
+    # First ask a cloned model for the ideal lower bound: the only one-inning
+    # states are those forced by a player receiving exactly one field or Bench
+    # inning. Feasibility is substantially easier to establish than proving a
+    # weighted optimum on broad, interchangeable rosters.
+    ideal_stints_model = model.clone()
+    ideal_stints_model.Add(
+        sum(one_inning_stints) == sum(unavoidable_one_inning_states)
+    )
+    ideal_stints_model.Minimize(0)
+    ideal_stints_solver = cp_model.CpSolver()
+    ideal_stints_solver.parameters.max_time_in_seconds = min(
         2.0,
         max(0.1, (max_solve_seconds - (monotonic() - started_at)) * 0.45),
     )
-    one_inning_solver.parameters.num_search_workers = 8
-    one_inning_solver.parameters.random_seed = 42
-    one_inning_status = one_inning_solver.Solve(model)
+    ideal_stints_solver.parameters.num_search_workers = 8
+    ideal_stints_solver.parameters.random_seed = 42
+    ideal_stints_status = ideal_stints_solver.Solve(ideal_stints_model)
+
+    if ideal_stints_status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        one_inning_solver = ideal_stints_solver
+        one_inning_status = ideal_stints_status
+        best_one_inning = sum(
+            ideal_stints_solver.Value(item) for item in one_inning_stints
+        )
+        one_inning_proven = True
+    else:
+        model.Minimize(sum(one_inning_stints))
+        one_inning_solver = cp_model.CpSolver()
+        one_inning_solver.parameters.max_time_in_seconds = min(
+            2.0,
+            max(0.1, (max_solve_seconds - (monotonic() - started_at)) * 0.45),
+        )
+        one_inning_solver.parameters.num_search_workers = 8
+        one_inning_solver.parameters.random_seed = 42
+        one_inning_status = one_inning_solver.Solve(model)
+        best_one_inning = (
+            sum(one_inning_solver.Value(item) for item in one_inning_stints)
+            if one_inning_status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
+            else 0
+        )
+        one_inning_proven = (
+            one_inning_status == cp_model.OPTIMAL
+            or (
+                one_inning_status == cp_model.FEASIBLE
+                and best_one_inning == 0
+            )
+        )
+
     if one_inning_status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         raise LineupError(
             "The optimizer could not improve lineup continuity within the "
             "time limit. Please try again."
         )
 
-    best_one_inning = sum(
-        one_inning_solver.Value(item) for item in one_inning_stints
-    )
-    one_inning_proven = (
-        one_inning_status == cp_model.OPTIMAL or best_one_inning == 0
-    )
     if one_inning_proven:
         model.Add(sum(one_inning_stints) == best_one_inning)
     model.clear_hints()
