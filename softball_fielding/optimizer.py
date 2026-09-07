@@ -154,7 +154,7 @@ def optimize_game(
     players: Iterable[Player],
     *,
     profile: LeagueRules = COED_RULES,
-    max_solve_seconds: float = 3.0,
+    max_solve_seconds: float = 5.0,
 ) -> ScheduleResult:
     """Build the fairest legal seven-inning schedule for available players."""
 
@@ -427,7 +427,7 @@ def optimize_game(
     model.Minimize(sum(one_inning_stints))
     one_inning_solver = cp_model.CpSolver()
     one_inning_solver.parameters.max_time_in_seconds = min(
-        1.0,
+        2.0,
         max(0.1, (max_solve_seconds - (monotonic() - started_at)) * 0.45),
     )
     one_inning_solver.parameters.num_search_workers = 8
@@ -442,11 +442,42 @@ def optimize_game(
     best_one_inning = sum(
         one_inning_solver.Value(item) for item in one_inning_stints
     )
-    if one_inning_status == cp_model.OPTIMAL or best_one_inning == 0:
+    one_inning_proven = (
+        one_inning_status == cp_model.OPTIMAL or best_one_inning == 0
+    )
+    if one_inning_proven:
         model.Add(sum(one_inning_stints) == best_one_inning)
     model.clear_hints()
     for variable in (*assignments.values(), *bench_assignments.values()):
         model.AddHint(variable, one_inning_solver.Value(variable))
+
+    solution_solver = one_inning_solver
+    solution_status = one_inning_status
+    if one_inning_proven:
+        # Once short stints are fixed, independently secure the two-position
+        # target before spending the remaining budget on lower-order polish.
+        model.Minimize(sum(excess_position_counts))
+        excess_solver = cp_model.CpSolver()
+        excess_solver.parameters.max_time_in_seconds = min(
+            1.0,
+            max(0.1, (max_solve_seconds - (monotonic() - started_at)) * 0.35),
+        )
+        excess_solver.parameters.num_search_workers = 8
+        excess_solver.parameters.random_seed = 42
+        excess_status = excess_solver.Solve(model)
+        if excess_status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            solution_solver = excess_solver
+            solution_status = excess_status
+            best_excess_positions = sum(
+                excess_solver.Value(item) for item in excess_position_counts
+            )
+            if excess_status == cp_model.OPTIMAL or best_excess_positions == 0:
+                model.Add(
+                    sum(excess_position_counts) == best_excess_positions
+                )
+            model.clear_hints()
+            for variable in (*assignments.values(), *bench_assignments.values()):
+                model.AddHint(variable, excess_solver.Value(variable))
 
     model.Minimize(consistency_penalty)
 
@@ -456,17 +487,15 @@ def optimize_game(
     )
     solver.parameters.num_search_workers = 8
     solver.parameters.random_seed = 42
-    status = solver.Solve(model)
+    final_status = solver.Solve(model)
 
-    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        if status == cp_model.INFEASIBLE:
-            raise LineupError(
-                "No legal schedule can satisfy all positional preferences and "
-                "league rules. Try adding preferences or changing availability."
-            )
+    if final_status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        solution_solver = solver
+        solution_status = final_status
+    elif final_status == cp_model.INFEASIBLE:
         raise LineupError(
-            "The optimizer could not find a schedule within the time limit. "
-            "Please try again."
+            "No legal schedule can satisfy all positional preferences and "
+            "league rules. Try adding preferences or changing availability."
         )
 
     solved_assignments = []
@@ -478,14 +507,14 @@ def optimize_game(
         for position in active_positions:
             for player_index, player in enumerate(player_list):
                 variable = assignments.get((inning, player_index, position))
-                if variable is not None and solver.Value(variable):
+                if variable is not None and solution_solver.Value(variable):
                     inning_assignment[position] = player.name
                     positions_by_player[player.name].add(position)
                     break
         solved_assignments.append(inning_assignment)
 
     player_innings = {
-        player.name: solver.Value(innings_played[index])
+        player.name: solution_solver.Value(innings_played[index])
         for index, player in enumerate(player_list)
     }
     player_positions = {
@@ -500,5 +529,5 @@ def optimize_game(
         active_positions=active_positions,
         player_innings=player_innings,
         player_positions=player_positions,
-        solver_status=solver.StatusName(status),
+        solver_status=solution_solver.StatusName(solution_status),
     )

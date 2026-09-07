@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -12,6 +13,8 @@ from softball_fielding.models import (
     POSITIONS,
     ScheduleResult,
 )
+
+APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
 
 
 def fake_result(players, *, profile=COED_RULES):
@@ -77,7 +80,7 @@ def set_available_player_ids(app, player_ids):
 def test_app_loads_csv_defaults_and_optimizes(monkeypatch):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
-    app = AppTest.from_file("app.py").run(timeout=20)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
 
     assert not app.exception
     assert app.title[0].value == "🥎 Softball Fielding Optimizer"
@@ -185,7 +188,7 @@ def test_app_surfaces_optimizer_errors_without_showing_a_stale_lineup(monkeypatc
     message = "No legal schedule can satisfy the selected availability."
     optimizer = Mock(side_effect=LineupError(message))
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
-    app = AppTest.from_file("app.py").run(timeout=20)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
 
     next(
         button for button in app.button if button.label == "Optimize seven innings"
@@ -215,7 +218,7 @@ def test_app_surfaces_optimizer_errors_without_showing_a_stale_lineup(monkeypatc
 def test_add_edit_remove_and_reset_roster(monkeypatch):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
-    app = AppTest.from_file("app.py").run(timeout=20)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
     original_roster = [
         {
             **record,
@@ -346,7 +349,7 @@ def test_add_edit_remove_and_reset_roster(monkeypatch):
 def test_player_edit_cancel_is_atomic_and_blocks_other_actions(monkeypatch):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
-    app = AppTest.from_file("app.py").run(timeout=20)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
     original_kevin = {
         **next(
             record
@@ -422,7 +425,7 @@ def test_player_edit_cancel_is_atomic_and_blocks_other_actions(monkeypatch):
 def test_destructive_action_cancellation_preserves_roster(monkeypatch):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
-    app = AppTest.from_file("app.py").run(timeout=20)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
     original_roster = [
         {**record, "preferences": set(record["preferences"])}
         for record in app.session_state["roster"]
@@ -466,7 +469,7 @@ def test_destructive_action_cancellation_preserves_roster(monkeypatch):
 def test_count_readiness_disables_known_impossible_lineups(monkeypatch):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
-    app = AppTest.from_file("app.py").run(timeout=20)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
     women = [
         record["id"]
         for record in app.session_state["roster"]
@@ -491,7 +494,7 @@ def test_count_readiness_disables_known_impossible_lineups(monkeypatch):
 def test_invalid_available_player_is_identified_before_optimization(monkeypatch):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
-    app = AppTest.from_file("app.py").run(timeout=20)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
 
     next(button for button in app.button if button.label == "Edit Kevin").click().run(
         timeout=20
@@ -525,7 +528,7 @@ def test_invalid_available_player_is_identified_before_optimization(monkeypatch)
 def test_available_unnamed_player_warns_but_does_not_block(monkeypatch):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
-    app = AppTest.from_file("app.py").run(timeout=20)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
     next(button for button in app.button if button.label == "＋ Add player").click().run(
         timeout=20
     )
@@ -545,7 +548,7 @@ def test_available_unnamed_player_warns_but_does_not_block(monkeypatch):
 def test_duplicate_available_names_block_before_optimization(monkeypatch):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
-    app = AppTest.from_file("app.py").run(timeout=20)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
     andrew_id = next(
         record["id"]
         for record in app.session_state["roster"]
@@ -583,7 +586,7 @@ def test_duplicate_available_names_block_before_optimization(monkeypatch):
 def test_league_profile_is_explicit_invalidates_results_and_survives_reset(monkeypatch):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
-    app = AppTest.from_file("app.py").run(timeout=20)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
 
     assert element_with_key(app.selectbox, "league-profile").value == "coed"
     next(
@@ -621,7 +624,7 @@ def test_league_profile_is_explicit_invalidates_results_and_survives_reset(monke
 def test_open_profile_does_not_require_available_women(monkeypatch):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
-    app = AppTest.from_file("app.py").run(timeout=20)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
 
     next(
         button for button in app.button if button.label == "Clear all women"
@@ -651,7 +654,7 @@ def test_open_profile_does_not_require_available_women(monkeypatch):
 def test_bulk_availability_actions_update_the_roster(monkeypatch):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
-    app = AppTest.from_file("app.py").run(timeout=20)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
 
     next(
         button for button in app.button if button.label == "Clear all women"
@@ -692,7 +695,7 @@ def test_app_presents_legal_active_positions_for_each_lineup_size(
 ):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
-    app = AppTest.from_file("app.py").run(timeout=20)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
 
     women = [
         record["id"]
