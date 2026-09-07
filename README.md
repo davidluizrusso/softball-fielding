@@ -3,8 +3,17 @@
 A small web app that creates legal seven-inning slowpitch defensive
 assignments, balances playing time, and limits positional churn. Select the
 default Co-ed rules or an Open profile with no gender-based fielding minimums.
-The deployment is team-neutral: different teams can use either rules profile
+The application is team-neutral: different teams can use either rules profile
 in independent browser sessions without replacing one another's game setup.
+
+## Live deployments
+
+- [Here For The Beer](https://here-for-the-beer.streamlit.app/) — existing
+  public team deployment. This address remains supported for current users.
+
+A separate team-neutral Streamlit address has not yet been provisioned. It will
+become the primary shared link for Here For The Beer, Team Red, and future
+teams without replacing the existing team URL above.
 
 ## Run locally
 
