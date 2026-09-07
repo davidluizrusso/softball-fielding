@@ -6,33 +6,84 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 
 from ortools.sat.python import cp_model
 
-from .models import INFIELD, INNINGS, OUTFIELD, POSITIONS, Player, ScheduleResult
+from .models import (
+    COED_RULES,
+    INFIELD,
+    INNINGS,
+    OUTFIELD,
+    POSITIONS,
+    LeagueRules,
+    Player,
+    ScheduleResult,
+    resolve_league_rules,
+)
+
+BENCH_STATE = "Bench"
 
 
 class LineupError(ValueError):
     """Raised when the inputs cannot produce a legal schedule."""
 
 
-def _lineup_rules(players: Sequence[Player]) -> Tuple[Tuple[str, ...], int]:
-    player_count = len(players)
-    woman_count = sum(player.is_woman for player in players)
+def lineup_shortages(
+    player_count: int,
+    woman_count: int,
+    profile: LeagueRules = COED_RULES,
+) -> Tuple[str, ...]:
+    """Return count-based reasons a profile cannot field a lineup."""
 
+    rules = resolve_league_rules(profile)
+    shortages = []
     if player_count < 8:
-        raise LineupError(
+        shortages.append(
             f"At least 8 available players are required; only {player_count} "
             "are available."
         )
-    if woman_count < 3:
-        raise LineupError(
-            f"At least 3 available women are required; only {woman_count} "
+    if woman_count < rules.reduced_lineup_minimum_women:
+        shortages.append(
+            f"At least {rules.reduced_lineup_minimum_women} available women "
+            f"are required; only {woman_count} "
             "are available."
         )
+    return tuple(shortages)
 
-    if player_count >= 10 and woman_count >= 4:
-        return POSITIONS, 4
+
+def lineup_plan(
+    player_count: int,
+    woman_count: int,
+    profile: LeagueRules = COED_RULES,
+) -> Tuple[Tuple[str, ...], int]:
+    """Return active positions and the minimum women for a league profile."""
+
+    rules = resolve_league_rules(profile)
+    shortages = lineup_shortages(player_count, woman_count, rules)
+    if shortages:
+        raise LineupError(" ".join(shortages))
+
+    if (
+        player_count >= 10
+        and woman_count >= rules.full_lineup_minimum_women
+    ):
+        return POSITIONS, rules.full_lineup_minimum_women
     if player_count >= 9:
-        return tuple(position for position in POSITIONS if position != "RF"), 3
-    return tuple(position for position in POSITIONS if position not in {"C", "RF"}), 3
+        return (
+            tuple(position for position in POSITIONS if position != "RF"),
+            rules.reduced_lineup_minimum_women,
+        )
+    return (
+        tuple(position for position in POSITIONS if position not in {"C", "RF"}),
+        rules.reduced_lineup_minimum_women,
+    )
+
+
+def _lineup_rules(
+    players: Sequence[Player], profile: LeagueRules
+) -> Tuple[Tuple[str, ...], int]:
+    return lineup_plan(
+        len(players),
+        sum(player.is_woman for player in players),
+        profile,
+    )
 
 
 def _eligible_positions(
@@ -61,6 +112,7 @@ def _preflight_preferences(
     players: Sequence[Player],
     active_positions: Sequence[str],
     eligibility: Dict[int, frozenset[str]],
+    profile: LeagueRules,
 ) -> None:
     uncovered = [
         position
@@ -73,6 +125,9 @@ def _preflight_preferences(
             + ", ".join(uncovered)
             + "."
         )
+
+    if not profile.require_woman_infield_and_outfield:
+        return
 
     women_infield = any(
         player.is_woman and eligibility[index].intersection(INFIELD)
@@ -96,24 +151,32 @@ def _preflight_preferences(
 
 
 def optimize_game(
-    players: Iterable[Player], *, max_solve_seconds: float = 3.0
+    players: Iterable[Player],
+    *,
+    profile: LeagueRules = COED_RULES,
+    max_solve_seconds: float = 3.0,
 ) -> ScheduleResult:
     """Build the fairest legal seven-inning schedule for available players."""
 
     player_list = tuple(players)
+    rules = resolve_league_rules(profile)
     _validate_players(player_list)
-    active_positions, minimum_women = _lineup_rules(player_list)
+    active_positions, minimum_women = _lineup_rules(player_list, rules)
     eligibility = {
         index: _eligible_positions(player, active_positions)
         for index, player in enumerate(player_list)
     }
-    _preflight_preferences(player_list, active_positions, eligibility)
+    _preflight_preferences(player_list, active_positions, eligibility, rules)
 
     model = cp_model.CpModel()
     assignments: Dict[Tuple[int, int, str], cp_model.IntVar] = {}
+    bench_assignments: Dict[Tuple[int, int], cp_model.IntVar] = {}
 
     for inning in range(INNINGS):
         for player_index, _player in enumerate(player_list):
+            bench_assignments[(inning, player_index)] = model.NewBoolVar(
+                f"inning_{inning}_player_{player_index}_bench"
+            )
             for position in eligibility[player_index]:
                 assignments[(inning, player_index, position)] = model.NewBoolVar(
                     f"inning_{inning}_player_{player_index}_{position}"
@@ -132,35 +195,38 @@ def optimize_game(
 
         for player_index in range(len(player_list)):
             model.Add(
-                sum(
+                bench_assignments[(inning, player_index)]
+                + sum(
                     assignments[(inning, player_index, position)]
                     for position in eligibility[player_index]
                 )
-                <= 1
+                == 1
             )
 
-        woman_assignments = [
-            assignments[(inning, player_index, position)]
-            for player_index, player in enumerate(player_list)
-            if player.is_woman
-            for position in eligibility[player_index]
-        ]
-        model.Add(sum(woman_assignments) >= minimum_women)
+        if minimum_women:
+            woman_assignments = [
+                assignments[(inning, player_index, position)]
+                for player_index, player in enumerate(player_list)
+                if player.is_woman
+                for position in eligibility[player_index]
+            ]
+            model.Add(sum(woman_assignments) >= minimum_women)
 
-        woman_infield_assignments = [
-            assignments[(inning, player_index, position)]
-            for player_index, player in enumerate(player_list)
-            if player.is_woman
-            for position in eligibility[player_index].intersection(INFIELD)
-        ]
-        woman_outfield_assignments = [
-            assignments[(inning, player_index, position)]
-            for player_index, player in enumerate(player_list)
-            if player.is_woman
-            for position in eligibility[player_index].intersection(OUTFIELD)
-        ]
-        model.Add(sum(woman_infield_assignments) >= 1)
-        model.Add(sum(woman_outfield_assignments) >= 1)
+        if rules.require_woman_infield_and_outfield:
+            woman_infield_assignments = [
+                assignments[(inning, player_index, position)]
+                for player_index, player in enumerate(player_list)
+                if player.is_woman
+                for position in eligibility[player_index].intersection(INFIELD)
+            ]
+            woman_outfield_assignments = [
+                assignments[(inning, player_index, position)]
+                for player_index, player in enumerate(player_list)
+                if player.is_woman
+                for position in eligibility[player_index].intersection(OUTFIELD)
+            ]
+            model.Add(sum(woman_infield_assignments) >= 1)
+            model.Add(sum(woman_outfield_assignments) >= 1)
 
     innings_played: List[cp_model.IntVar] = []
     for player_index, player in enumerate(player_list):
@@ -195,7 +261,7 @@ def optimize_game(
 
     excess_position_counts: List[cp_model.IntVar] = []
     distinct_position_counts: List[cp_model.IntVar] = []
-    position_starts: List[cp_model.IntVar] = []
+    state_transitions: List[cp_model.IntVar] = []
     one_inning_stints: List[cp_model.IntVar] = []
     two_inning_stints: List[cp_model.IntVar] = []
     for player_index, _player in enumerate(player_list):
@@ -211,25 +277,36 @@ def optimize_game(
             model.Add(used <= sum(inning_variables))
             position_used.append(used)
 
+        state_variables = {
+            position: [
+                assignments[(inning, player_index, position)]
+                for inning in range(INNINGS)
+            ]
+            for position in eligibility[player_index]
+        }
+        state_variables[BENCH_STATE] = [
+            bench_assignments[(inning, player_index)]
+            for inning in range(INNINGS)
+        ]
+
+        for state, inning_variables in state_variables.items():
             for inning, assignment in enumerate(inning_variables):
                 previous = inning_variables[inning - 1] if inning > 0 else None
                 following = (
                     inning_variables[inning + 1] if inning + 1 < INNINGS else None
                 )
 
-                started = model.NewBoolVar(
-                    f"player_{player_index}_{position}_starts_{inning}"
-                )
-                if previous is None:
-                    model.Add(started == assignment)
-                else:
-                    model.Add(started <= assignment)
-                    model.Add(started + previous <= 1)
-                    model.Add(started >= assignment - previous)
-                position_starts.append(started)
+                if previous is not None:
+                    transition = model.NewBoolVar(
+                        f"player_{player_index}_{state}_transition_{inning}"
+                    )
+                    model.Add(transition <= assignment)
+                    model.Add(transition + previous <= 1)
+                    model.Add(transition >= assignment - previous)
+                    state_transitions.append(transition)
 
                 one_inning = model.NewBoolVar(
-                    f"player_{player_index}_{position}_one_inning_{inning}"
+                    f"player_{player_index}_{state}_one_inning_{inning}"
                 )
                 model.Add(one_inning <= assignment)
                 lower_bound = assignment
@@ -250,7 +327,7 @@ def optimize_game(
                     inning_variables[inning + 2] if inning + 2 < INNINGS else None
                 )
                 two_inning = model.NewBoolVar(
-                    f"player_{player_index}_{position}_two_inning_{inning}"
+                    f"player_{player_index}_{state}_two_inning_{inning}"
                 )
                 model.Add(two_inning <= first)
                 model.Add(two_inning <= second)
@@ -275,18 +352,40 @@ def optimize_game(
         model.Add(excess_positions >= distinct_positions - 2)
         excess_position_counts.append(excess_positions)
 
-    one_inning_cost = 1000
-    excess_position_cost = 200
-    two_inning_cost = 25
-    distinct_position_cost = 5
-    position_start_cost = 1
+    # Each coefficient is larger than the maximum possible contribution of
+    # every lower-priority term. This encodes the documented lexicographic
+    # order without requiring five additional solver passes.
+    transition_cost = 1
+    distinct_position_cost = (
+        player_count * (INNINGS - 1) * transition_cost + 1
+    )
+    two_inning_cost = (
+        player_count * len(active_positions) * distinct_position_cost
+        + player_count * (INNINGS - 1) * transition_cost
+        + 1
+    )
+    excess_position_cost = (
+        player_count * (INNINGS - 1) * two_inning_cost
+        + player_count * len(active_positions) * distinct_position_cost
+        + player_count * (INNINGS - 1) * transition_cost
+        + 1
+    )
+    one_inning_cost = (
+        player_count
+        * max(0, len(active_positions) - 2)
+        * excess_position_cost
+        + player_count * (INNINGS - 1) * two_inning_cost
+        + player_count * len(active_positions) * distinct_position_cost
+        + player_count * (INNINGS - 1) * transition_cost
+        + 1
+    )
 
     consistency_penalty = (
         sum(one_inning_stints) * one_inning_cost
         + sum(excess_position_counts) * excess_position_cost
         + sum(two_inning_stints) * two_inning_cost
         + sum(distinct_position_counts) * distinct_position_cost
-        + sum(position_starts) * position_start_cost
+        + sum(state_transitions) * transition_cost
     )
     max_deviation_total = player_count * maximum_scaled_deviation
     fairness_objective = (
@@ -307,7 +406,7 @@ def optimize_game(
         if fairness_status == cp_model.INFEASIBLE:
             raise LineupError(
                 "No legal schedule can satisfy all positional preferences and "
-                "gender rules. Try adding preferences or changing availability."
+                "league rules. Try adding preferences or changing availability."
             )
         raise LineupError(
             "The optimizer could not find a schedule within the time limit. "
@@ -318,12 +417,38 @@ def optimize_game(
     best_deviation = sum(fairness_solver.Value(item) for item in deviations)
     model.Add(playing_time_spread == best_spread)
     model.Add(sum(deviations) == best_deviation)
-    for variable in assignments.values():
+    for variable in (*assignments.values(), *bench_assignments.values()):
         model.AddHint(variable, fairness_solver.Value(variable))
 
-    model.Minimize(
-        consistency_penalty
+    # Find the highest-priority continuity target on its own first. In broad,
+    # interchangeable rosters this reaches the obvious lower bound (zero)
+    # much more reliably than asking one weighted search to navigate every
+    # lower-priority tie at once.
+    model.Minimize(sum(one_inning_stints))
+    one_inning_solver = cp_model.CpSolver()
+    one_inning_solver.parameters.max_time_in_seconds = min(
+        1.0,
+        max(0.1, (max_solve_seconds - (monotonic() - started_at)) * 0.45),
     )
+    one_inning_solver.parameters.num_search_workers = 8
+    one_inning_solver.parameters.random_seed = 42
+    one_inning_status = one_inning_solver.Solve(model)
+    if one_inning_status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        raise LineupError(
+            "The optimizer could not improve lineup continuity within the "
+            "time limit. Please try again."
+        )
+
+    best_one_inning = sum(
+        one_inning_solver.Value(item) for item in one_inning_stints
+    )
+    if one_inning_status == cp_model.OPTIMAL or best_one_inning == 0:
+        model.Add(sum(one_inning_stints) == best_one_inning)
+    model.clear_hints()
+    for variable in (*assignments.values(), *bench_assignments.values()):
+        model.AddHint(variable, one_inning_solver.Value(variable))
+
+    model.Minimize(consistency_penalty)
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max(
@@ -337,7 +462,7 @@ def optimize_game(
         if status == cp_model.INFEASIBLE:
             raise LineupError(
                 "No legal schedule can satisfy all positional preferences and "
-                "gender rules. Try adding preferences or changing availability."
+                "league rules. Try adding preferences or changing availability."
             )
         raise LineupError(
             "The optimizer could not find a schedule within the time limit. "

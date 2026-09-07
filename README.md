@@ -1,7 +1,8 @@
 # Softball Fielding Optimizer
 
-A small web app that creates legal seven-inning co-ed slowpitch defensive
-assignments, balances playing time, and limits positional churn.
+A small web app that creates legal seven-inning slowpitch defensive
+assignments, balances playing time, and limits positional churn. Select the
+default Co-ed rules or an Open profile with no gender-based fielding minimums.
 
 ## Run locally
 
@@ -15,6 +16,14 @@ Run the automated tests with:
 
 ```bash
 .venv/bin/python -m pytest
+```
+
+The real-browser regression suite covers mobile touch and desktop mouse input:
+
+```bash
+npm ci
+npx playwright install chromium
+npm run test:browser
 ```
 
 ## Deploy

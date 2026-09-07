@@ -11,3 +11,7 @@ docs/*.fls
 docs/*.log
 docs/*.out
 docs/*.synctex.gz
+
+node_modules/
+playwright-report/
+test-results/
