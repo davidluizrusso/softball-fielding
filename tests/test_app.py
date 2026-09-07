@@ -422,6 +422,91 @@ def test_player_edit_cancel_is_atomic_and_blocks_other_actions(monkeypatch):
     assert app.session_state["result"] == original_result
 
 
+def test_noop_player_save_preserves_current_result(monkeypatch):
+    optimizer = Mock(side_effect=fake_result)
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
+    next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    ).click().run(timeout=20)
+    original_result = app.session_state["result"]
+    original_revision = app.session_state["roster_revision"]
+    original_attempt_fingerprint = app.session_state["last_attempt_fingerprint"]
+    original_result_fingerprint = app.session_state["result_fingerprint"]
+    original_optimization_seconds = app.session_state["optimization_seconds"]
+    next(
+        selectbox for selectbox in app.selectbox if selectbox.label == "Inning"
+    ).set_value(7).run(timeout=20)
+
+    next(button for button in app.button if button.label == "Edit Kevin").click().run(
+        timeout=20
+    )
+    element_with_key_prefix(app.text_input, "draft-name-player-9").set_value(
+        " Kevin "
+    )
+    next(button for button in app.button if button.label == "Save changes").click().run(
+        timeout=20
+    )
+
+    assert app.session_state["result"] == original_result
+    assert app.session_state["roster_revision"] == original_revision
+    assert next(
+        record
+        for record in app.session_state["roster"]
+        if record["id"] == "player-9"
+    )["name"] == "Kevin"
+    assert (
+        app.session_state["last_attempt_fingerprint"]
+        == original_attempt_fingerprint
+    )
+    assert app.session_state["result_fingerprint"] == original_result_fingerprint
+    assert app.session_state["optimization_seconds"] == original_optimization_seconds
+    optimizer.assert_called_once()
+    assert any(
+        subheader.value == "Optimized lineup" for subheader in app.subheader
+    )
+    assert next(
+        selectbox for selectbox in app.selectbox if selectbox.label == "Lineup view"
+    ).value == "By inning"
+    assert next(
+        selectbox for selectbox in app.selectbox if selectbox.label == "Inning"
+    ).value == 7
+    assert any(
+        button.label == "Download full lineup CSV"
+        for button in app.get("download_button")
+    )
+    assert not any(
+        info.value == "Inputs changed — optimize again." for info in app.info
+    )
+
+
+def test_noop_player_save_preserves_current_error(monkeypatch):
+    message = "No legal schedule can satisfy the selected availability."
+    optimizer = Mock(side_effect=LineupError(message))
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
+    next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    ).click().run(timeout=20)
+    original_revision = app.session_state["roster_revision"]
+
+    next(button for button in app.button if button.label == "Edit Kevin").click().run(
+        timeout=20
+    )
+    next(button for button in app.button if button.label == "Save changes").click().run(
+        timeout=20
+    )
+
+    assert [error.value for error in app.error] == [message]
+    assert app.session_state["roster_revision"] == original_revision
+    assert app.session_state["result"] is None
+    assert not app.get("download_button")
+    optimizer.assert_called_once()
+    assert not any(
+        info.value == "Inputs changed — optimize again." for info in app.info
+    )
+
+
 def test_destructive_action_cancellation_preserves_roster(monkeypatch):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)

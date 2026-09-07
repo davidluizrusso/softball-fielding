@@ -272,6 +272,11 @@ def save_player_edit(
 ) -> None:
     """Atomically commit one player form before Streamlit rerenders."""
 
+    profile_key = st.session_state.get("league-profile", COED_RULES.key)
+    previous_fingerprint = roster_fingerprint(
+        st.session_state.roster,
+        profile_key,
+    )
     pending_new_player = st.session_state.pending_new_player
     if (
         pending_new_player is not None
@@ -286,13 +291,18 @@ def save_player_edit(
             for candidate in st.session_state.roster
             if str(candidate["id"]) == player_id
         )
-    record["name"] = st.session_state[name_key]
+    record["name"] = str(st.session_state[name_key]).strip()
     record["gender"] = st.session_state[gender_key]
     record["preferences"] = set(st.session_state[preferences_key] or [])
     st.session_state.editing_player_id = None
-    st.session_state.roster_revision += 1
-    st.session_state.result = None
-    st.session_state.error = None
+    committed_inputs_changed = previous_fingerprint != roster_fingerprint(
+        st.session_state.roster,
+        profile_key,
+    )
+    if committed_inputs_changed:
+        st.session_state.roster_revision += 1
+        st.session_state.result = None
+        st.session_state.error = None
 
 
 def cancel_player_edit(player_id: str) -> None:

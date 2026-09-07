@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const POSITIONS = ["P", "C", "1B", "2B", "3B", "SS", "LF", "LC", "RC", "RF"];
-const NEW_PLAYER = "Browser QA Player";
+const NEW_PLAYER = "Browser QA Player With A Very Long Dugout Nickname";
 const NEW_PLAYER_POSITIONS = ["P", "C", "SS"];
 const KEVIN_POSITIONS = ["2B", "3B", "SS", "LF", "LC", "RC"];
 
@@ -34,10 +34,14 @@ function playerCard(page, name) {
 async function openPlayerCard(page, name, testInfo) {
   const card = playerCard(page, name);
   await expect(card).toBeVisible();
-  if (await card.getAttribute("open") === null) {
+  const editButton = card.getByRole("button", {
+    name: `Edit ${name}`,
+    exact: true,
+  });
+  if (!await editButton.isVisible()) {
     await activate(card.locator("summary"), testInfo);
   }
-  await expect(card).toHaveAttribute("open", "");
+  await expect(editButton).toBeVisible();
   return card;
 }
 
@@ -103,7 +107,7 @@ async function expectEditorValues(page, { name, gender, positions }) {
 }
 
 test("issue #8 saves every individual edit and Cancel discards a draft", async ({ page }, testInfo) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   await page.goto("/");
   await expect(
     page.getByRole("heading", { name: "🥎 Softball Fielding Optimizer" }),
@@ -145,6 +149,11 @@ test("issue #8 saves every individual edit and Cancel discards a draft", async (
       `${NEW_PLAYER} · Man · Available · P, C, SS`,
     );
     await expect(playerNameInput(page)).toBeHidden();
+    if (testInfo.project.name === "mobile-touch") {
+      expect(await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+      )).toBe(true);
+    }
   });
 
   await test.step("reopen the saved player and verify the persisted record", async () => {
@@ -169,8 +178,13 @@ test("issue #8 saves every individual edit and Cancel discards a draft", async (
       gender: "Man",
       positions: NEW_PLAYER_POSITIONS,
     });
-    await cancelEditor(page, testInfo);
+    await activate(page.getByRole("button", { name: "Save changes" }), testInfo);
+    await expect(playerNameInput(page)).toBeHidden();
     await expect(resultHeading).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Download full lineup CSV" }),
+    ).toBeEnabled();
+    await expect(page.getByText("Inputs changed — optimize again.")).toBeHidden();
 
     await activate(page.getByRole("button", { name: "＋ Add player" }), testInfo);
     await expect(playerNameInput(page)).toBeVisible();
@@ -287,5 +301,50 @@ test("issue #8 saves every individual edit and Cancel discards a draft", async (
     for (const name of women) {
       await expect(page.getByRole("checkbox", { name, exact: true })).toBeChecked();
     }
+  });
+
+  await test.step("issue #5 confirms destructive roster actions without losing cancel state", async () => {
+    const optimize = page.getByRole("button", { name: "Optimize seven innings" });
+    await activate(optimize, testInfo);
+    const resultHeading = page.getByRole("heading", { name: "Optimized lineup" });
+    await expect(resultHeading).toBeVisible({ timeout: 30_000 });
+
+    let kevinCard = await openPlayerCard(page, "Kevin", testInfo);
+    await activate(
+      kevinCard.getByRole("button", { name: "Remove Kevin", exact: true }),
+      testInfo,
+    );
+    await expect(page.getByText("Remove Kevin from this session roster?")).toBeVisible();
+    await expect(resultHeading).toBeVisible();
+    const cancelRemoval = page.getByRole("button", { name: "Cancel removal" });
+    await activate(cancelRemoval, testInfo);
+    await expect(cancelRemoval).toBeHidden();
+    await expect(playerCard(page, "Kevin")).toBeVisible();
+    await expect(resultHeading).toBeVisible();
+
+    kevinCard = await openPlayerCard(page, "Kevin", testInfo);
+    await activate(
+      kevinCard.getByRole("button", { name: "Remove Kevin", exact: true }),
+      testInfo,
+    );
+    await activate(
+      page.getByRole("button", { name: "Confirm remove Kevin" }),
+      testInfo,
+    );
+    await expect(playerCard(page, "Kevin")).toHaveCount(0);
+    await expect(resultHeading).toBeHidden();
+    await expect(page.getByText("Inputs changed — optimize again.")).toBeVisible();
+
+    await activate(page.getByRole("button", { name: "Reset to CSV defaults" }), testInfo);
+    await expect(
+      page.getByText("Replace all current session edits with the CSV defaults?"),
+    ).toBeVisible();
+    await activate(page.getByRole("button", { name: "Cancel reset" }), testInfo);
+    await expect(playerCard(page, "Kevin")).toHaveCount(0);
+
+    await activate(page.getByRole("button", { name: "Reset to CSV defaults" }), testInfo);
+    await activate(page.getByRole("button", { name: "Confirm reset" }), testInfo);
+    await expect(playerCard(page, "Kevin")).toBeVisible();
+    await expect(playerCard(page, NEW_PLAYER)).toHaveCount(0);
   });
 });
