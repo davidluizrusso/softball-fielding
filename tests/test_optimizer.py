@@ -98,7 +98,7 @@ def test_pitcher_and_first_base_are_never_inferred():
     assert "C" in eligibility
 
 
-def test_preference_cost_aware_symmetry_preserves_zero_fallback_solution():
+def test_explicit_preference_priority_preserves_zero_fallback_across_player_order():
     players = [
         player("Wide", "Man", "LF", "RC", "RF"),
         player("Left", "Man", "LF"),

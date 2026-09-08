@@ -287,65 +287,6 @@ def optimize_game(
             model.Add(sum(woman_infield_assignments) >= 1)
             model.Add(sum(woman_outfield_assignments) >= 1)
 
-    # Players with identical gender and eligibility are interchangeable in the
-    # mathematical model. Canonically ordering their complete state sequences
-    # removes name-permutation symmetry without excluding a distinct schedule.
-    equivalent_players: Dict[
-        Tuple[bool, Tuple[str, ...], Tuple[str, ...]], List[int]
-    ] = {}
-    for player_index, player in enumerate(player_list):
-        equivalence_key = (
-            player.is_woman,
-            tuple(
-                position
-                for position in active_positions
-                if position in eligibility[player_index]
-            ),
-            tuple(
-                position
-                for position in active_positions
-                if position in player.preferences
-            ),
-        )
-        equivalent_players.setdefault(equivalence_key, []).append(player_index)
-
-    active_position_index = {
-        position: index for index, position in enumerate(active_positions)
-    }
-    state_base = len(active_positions) + 1
-    maximum_schedule_signature = state_base**INNINGS - 1
-    for group_index, player_indexes in enumerate(equivalent_players.values()):
-        if len(player_indexes) < 2:
-            continue
-        schedule_signatures = []
-        for player_index in player_indexes:
-            schedule_signature = model.NewIntVar(
-                0,
-                maximum_schedule_signature,
-                f"equivalent_group_{group_index}_player_{player_index}_schedule",
-            )
-            model.Add(
-                schedule_signature
-                == sum(
-                    state_base ** (INNINGS - 1 - inning)
-                    * (
-                        sum(
-                            active_position_index[position]
-                            * assignments[(inning, player_index, position)]
-                            for position in eligibility[player_index]
-                        )
-                        + len(active_positions)
-                        * bench_assignments[(inning, player_index)]
-                    )
-                    for inning in range(INNINGS)
-                )
-            )
-            schedule_signatures.append(schedule_signature)
-        for first, second in zip(
-            schedule_signatures, schedule_signatures[1:]
-        ):
-            model.Add(first <= second)
-
     innings_played: List[cp_model.IntVar] = []
     for player_index, player in enumerate(player_list):
         count = model.NewIntVar(0, INNINGS, f"innings_{player_index}")
