@@ -132,16 +132,20 @@ caller overrides. It first attempts to certify the arithmetic floor/ceiling
 distribution for playing time, then uses up to a two-second fairness proof
 budget when that slice is infeasible or cannot be established immediately. The
 UI reports each active optimization phase. Before the final timed continuity
-pass, the model bounds the weighted objective by the best legal incumbent and
-the returned candidate is also compared using the documented lexicographic
-vector. The unattainable-ideal probe is capped at 0.25 seconds; the focused
-one-inning/excess phase receives up to 2.5 seconds. The two-inning suffix uses
-two concurrent four-worker searches under the same eight-worker envelope: one
-ordinary proof-capable search and one hint-seeded large-neighborhood search.
-The better legal vector is retained before final distinct-position and
-transition polish. A worse timed candidate is discarded. `OPTIMAL` is reported
-only when every higher-priority stage and the final weighted continuity
-objective are proven; otherwise a legal incumbent is labeled `FEASIBLE`.
+pass, and at every continuity handoff whose higher-priority prefix remains
+unproven, the model bounds the complete weighted continuity objective by the
+best legal incumbent. It does not independently cap a lower component in that
+case: a later search may spend lower-priority quality to improve an earlier
+tier. Once the preceding prefix is proven, its exact component values may be
+fixed safely. Every returned candidate is also compared using the documented
+lexicographic vector. The unattainable-ideal probe is capped at 0.25 seconds;
+the focused one-inning/excess phase receives up to 2.5 seconds. The two-inning
+suffix uses two concurrent four-worker searches under the same eight-worker
+envelope: one ordinary proof-capable search and one hint-seeded large-
+neighborhood search. The better legal vector is retained before final polish.
+A worse timed candidate is discarded. `OPTIMAL` is reported only when every
+higher-priority stage and the final weighted continuity objective are proven;
+otherwise a legal incumbent is labeled `FEASIBLE`.
 
 The opt-in HFTB reference benchmark runs 20 measured solves across at least
 four fresh Python processes after one excluded warm-up per process. It records

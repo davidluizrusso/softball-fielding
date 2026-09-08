@@ -75,6 +75,54 @@ def _candidate_is_no_worse(
     return status in (cp_model.OPTIMAL, cp_model.FEASIBLE) and candidate <= incumbent
 
 
+def _continuity_weights(
+    player_count: int, position_count: int
+) -> Tuple[int, int, int, int, int]:
+    """Return coefficients that encode the continuity tuple lexicographically."""
+
+    transition_cost = 1
+    distinct_position_cost = player_count * (INNINGS - 1) + 1
+    two_inning_cost = (
+        player_count * position_count * distinct_position_cost
+        + player_count * (INNINGS - 1)
+        + 1
+    )
+    excess_position_cost = (
+        player_count * (INNINGS - 1) * two_inning_cost
+        + player_count * position_count * distinct_position_cost
+        + player_count * (INNINGS - 1)
+        + 1
+    )
+    one_inning_cost = (
+        player_count
+        * max(0, position_count - 2)
+        * excess_position_cost
+        + player_count * (INNINGS - 1) * two_inning_cost
+        + player_count * position_count * distinct_position_cost
+        + player_count * (INNINGS - 1)
+        + 1
+    )
+    return (
+        one_inning_cost,
+        excess_position_cost,
+        two_inning_cost,
+        distinct_position_cost,
+        transition_cost,
+    )
+
+
+def _bound_continuity_by_incumbent(
+    model: cp_model.CpModel,
+    consistency_penalty: cp_model.LinearExpr,
+    incumbent_solver: cp_model.CpSolver,
+) -> int:
+    """Keep the full weighted incumbent while leaving better prefixes open."""
+
+    incumbent_penalty = incumbent_solver.Value(consistency_penalty)
+    model.Add(consistency_penalty <= incumbent_penalty)
+    return incumbent_penalty
+
+
 class LineupError(ValueError):
     """Raised when the inputs cannot produce a legal schedule."""
 
@@ -481,29 +529,14 @@ def optimize_game(
     # Each coefficient is larger than the maximum possible contribution of
     # every lower-priority term. This encodes the documented lexicographic
     # order without requiring five additional solver passes.
-    transition_cost = 1
-    distinct_position_cost = (
-        player_count * (INNINGS - 1) * transition_cost + 1
-    )
-    two_inning_cost = (
-        player_count * len(active_positions) * distinct_position_cost
-        + player_count * (INNINGS - 1) * transition_cost
-        + 1
-    )
-    excess_position_cost = (
-        player_count * (INNINGS - 1) * two_inning_cost
-        + player_count * len(active_positions) * distinct_position_cost
-        + player_count * (INNINGS - 1) * transition_cost
-        + 1
-    )
-    one_inning_cost = (
-        player_count
-        * max(0, len(active_positions) - 2)
-        * excess_position_cost
-        + player_count * (INNINGS - 1) * two_inning_cost
-        + player_count * len(active_positions) * distinct_position_cost
-        + player_count * (INNINGS - 1) * transition_cost
-        + 1
+    (
+        one_inning_cost,
+        excess_position_cost,
+        two_inning_cost,
+        distinct_position_cost,
+        transition_cost,
+    ) = _continuity_weights(
+        player_count, len(active_positions)
     )
 
     consistency_penalty = (
@@ -734,11 +767,13 @@ def optimize_game(
 
     solution_solver = one_inning_solver
     solution_status = one_inning_status
-    # An optimal look-ahead solve proves the next tier too. A zero incumbent is
-    # also a certificate because excess-position counts have lower bound zero,
-    # even when CP-SAT has not proven the supplying objective optimal.
-    excess_proven = (
-        best_excess_positions == 0 or one_inning_status == cp_model.OPTIMAL
+    # A lower-bound value for a tier is a proof only after every higher tier is
+    # itself proven. Otherwise a better one-inning value may legitimately need
+    # more excess positions, so component-wise fixing would violate lexicographic
+    # priority.
+    excess_proven = one_inning_proven and (
+        best_excess_positions == 0
+        or one_inning_status == cp_model.OPTIMAL
     )
     if excess_proven:
         if best_excess_positions == 0:
@@ -746,10 +781,22 @@ def optimize_game(
                 model.Add(excess_positions == 0)
         else:
             model.Add(sum(excess_position_counts) == best_excess_positions)
+    elif best_excess_positions == 0:
+        # Zero is already the lowest possible value, but it is not a proof of
+        # this tier while one-inning continuity remains unproven: a better
+        # one-inning schedule may require nonzero excess. Preserve the full
+        # incumbent and spend no separate phase budget pretending otherwise.
+        _bound_continuity_by_incumbent(
+            model, consistency_penalty, solution_solver
+        )
     else:
-        # Secure the two-position target before spending time on lower-order
-        # polish. Probe the known lower bound inside the existing excess-phase
-        # budget, then use only the unspent remainder for ordinary minimization.
+        # Preserve the entire incumbent vector while allowing a higher-priority
+        # improvement to spend lower-priority quality. The coefficient hierarchy
+        # makes this one linear ceiling exactly lexicographic over all feasible
+        # continuity vectors.
+        _bound_continuity_by_incumbent(
+            model, consistency_penalty, solution_solver
+        )
         model.AddDecisionStrategy(
             position_used_variables,
             cp_model.CHOOSE_FIRST,
@@ -763,7 +810,9 @@ def optimize_game(
         ideal_excess_model = model.clone()
         for excess_positions in excess_position_counts:
             ideal_excess_model.Add(excess_positions == 0)
-        ideal_excess_model.Minimize(0)
+        ideal_excess_model.Minimize(
+            0 if one_inning_proven else consistency_penalty
+        )
         ideal_excess_solver = cp_model.CpSolver()
         ideal_excess_solver.parameters.max_time_in_seconds = max(
             0.05, excess_phase_budget * 0.6
@@ -775,10 +824,12 @@ def optimize_game(
         if ideal_excess_status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             excess_solver = ideal_excess_solver
             excess_status = ideal_excess_status
-            best_excess_positions = 0
-            excess_proven = True
         else:
-            model.Minimize(sum(excess_position_counts))
+            model.Minimize(
+                sum(excess_position_counts)
+                if one_inning_proven
+                else consistency_penalty
+            )
             excess_solver = cp_model.CpSolver()
             excess_solver.parameters.max_time_in_seconds = max(
                 0.05,
@@ -790,21 +841,6 @@ def optimize_game(
                 cp_model.PARTIAL_FIXED_SEARCH
             )
             excess_status = excess_solver.Solve(model)
-            best_excess_positions = (
-                sum(
-                    excess_solver.Value(item)
-                    for item in excess_position_counts
-                )
-                if excess_status in (cp_model.OPTIMAL, cp_model.FEASIBLE)
-                else best_excess_positions
-            )
-            excess_proven = (
-                excess_status == cp_model.OPTIMAL
-                or (
-                    excess_status == cp_model.FEASIBLE
-                    and best_excess_positions == 0
-                )
-            )
 
         if excess_status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             incumbent_vector = _continuity_vector_from_solver(
@@ -828,25 +864,47 @@ def optimize_game(
             ):
                 solution_solver = excess_solver
                 solution_status = excess_status
-            if excess_proven:
-                if best_excess_positions == 0:
-                    for excess_positions in excess_position_counts:
-                        model.Add(excess_positions == 0)
-                else:
-                    model.Add(
-                        sum(excess_position_counts) == best_excess_positions
-                    )
-            else:
-                model.Add(sum(excess_position_counts) <= best_excess_positions)
-            model.clear_hints()
-            for variable in (*assignments.values(), *bench_assignments.values()):
-                model.AddHint(variable, solution_solver.Value(variable))
+                incumbent_vector = candidate_vector
+
+        incumbent_vector = _continuity_vector_from_solver(
+            solution_solver,
+            one_inning_stints,
+            excess_position_counts,
+            two_inning_stints,
+            distinct_position_counts,
+            state_transitions,
+        )
+        best_one_inning = incumbent_vector[0]
+        best_excess_positions = incumbent_vector[1]
+        excess_proven = one_inning_proven and (
+            best_excess_positions == 0
+            or excess_status == cp_model.OPTIMAL
+        )
+        if excess_proven:
+            model.Add(sum(excess_position_counts) == best_excess_positions)
+        else:
+            _bound_continuity_by_incumbent(
+                model, consistency_penalty, solution_solver
+            )
+        model.clear_hints()
+        for variable in (*assignments.values(), *bench_assignments.values()):
+            model.AddHint(variable, solution_solver.Value(variable))
 
     _report_progress(progress_callback, CONSISTENCY_PROGRESS)
     # Give the next lexicographic tier its own focused slice. A smaller
-    # two-inning count always outranks distinct-position and transition polish.
+    # two-inning count outranks tail polish once the higher tiers are proven.
+    # Otherwise keep optimizing the complete lexicographic expression.
+    continuity_prefix_proven = one_inning_proven and excess_proven
     model.Minimize(
-        sum(two_inning_stints) * two_inning_cost + continuity_tail_penalty
+        (
+            sum(two_inning_stints) * two_inning_cost
+            + continuity_tail_penalty
+        )
+        if continuity_prefix_proven
+        else consistency_penalty
+    )
+    _bound_continuity_by_incumbent(
+        model, consistency_penalty, solution_solver
     )
     two_inning_budget = min(
         2.0,
@@ -895,21 +953,31 @@ def optimize_game(
             incumbent_continuity = candidate_continuity
 
     best_two_inning = incumbent_continuity[2]
-    two_inning_proven = (
-        any(
-            status == cp_model.OPTIMAL
-            for _solver, status in two_inning_results
-        )
-        or best_two_inning == 0
+    two_inning_proven = continuity_prefix_proven and (
+        best_two_inning == 0
+        or two_inning_results[0][1] == cp_model.OPTIMAL
     )
-    model.Add(sum(two_inning_stints) <= best_two_inning)
+    if two_inning_proven:
+        model.Add(sum(two_inning_stints) == best_two_inning)
+    else:
+        _bound_continuity_by_incumbent(
+            model, consistency_penalty, solution_solver
+        )
     model.clear_hints()
     for variable in (*assignments.values(), *bench_assignments.values()):
         model.AddHint(variable, solution_solver.Value(variable))
 
-    # The first three continuity tiers now have non-worsening bounds. Use the
-    # remaining time only for distinct positions and adjacent transitions.
-    model.Minimize(continuity_tail_penalty)
+    # Tail-only polish is valid only after all higher continuity tiers are
+    # proven. Otherwise the full objective must remain live so a better prefix
+    # may spend lower-priority quality.
+    continuity_through_two_proven = (
+        continuity_prefix_proven and two_inning_proven
+    )
+    model.Minimize(
+        continuity_tail_penalty
+        if continuity_through_two_proven
+        else consistency_penalty
+    )
 
     incumbent_continuity = _continuity_vector_from_solver(
         solution_solver,
@@ -919,11 +987,12 @@ def optimize_game(
         distinct_position_counts,
         state_transitions,
     )
-    incumbent_penalty = solution_solver.Value(continuity_tail_penalty)
     # A hint is not a quality guarantee. Keep the already legal incumbent in
-    # the final search slice so a timed multi-worker solve cannot replace it
-    # with a lexicographically worse schedule.
-    model.Add(continuity_tail_penalty <= incumbent_penalty)
+    # the final search slice while leaving every lexicographically better full
+    # vector admissible.
+    _bound_continuity_by_incumbent(
+        model, consistency_penalty, solution_solver
+    )
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max(

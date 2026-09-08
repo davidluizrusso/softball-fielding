@@ -1,17 +1,22 @@
-import csv
+import json
+import math
+from collections import Counter
 from pathlib import Path
 
 from ortools.sat.python import cp_model
 
 from softball_fielding import (
-    COED_RULES,
     OPEN_RULES,
     Player,
     ScheduleResult,
     optimize_game,
 )
 from softball_fielding.models import POSITIONS
-from softball_fielding.optimizer import _candidate_is_no_worse
+from softball_fielding.optimizer import (
+    _bound_continuity_by_incumbent,
+    _candidate_is_no_worse,
+    _continuity_weights,
+)
 from softball_fielding.quality import (
     continuity_vector,
     is_lexicographically_no_worse,
@@ -21,29 +26,6 @@ from softball_fielding.quality import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def published_hftb_players():
-    with (ROOT / "roster_positions.csv").open(
-        encoding="utf-8-sig", newline=""
-    ) as source:
-        rows = tuple(csv.DictReader(source))
-    return tuple(
-        Player(
-            row["Name"].strip(),
-            (
-                "Woman"
-                if row["Gender"].strip().lower() in {"f", "female", "w", "woman"}
-                else "Man"
-            ),
-            frozenset(
-                position
-                for position in POSITIONS
-                if row[position].strip().lower() in {"1", "true", "t", "yes", "y", "x"}
-            ),
-        )
-        for row in rows
-    )
 
 
 def test_quality_metrics_reconstruct_field_and_bench_states():
@@ -103,17 +85,131 @@ def test_timed_candidate_requires_a_solved_no_worse_continuity_vector():
     assert not _candidate_is_no_worse(cp_model.UNKNOWN, incumbent, incumbent)
 
 
-def test_published_hftb_default_preserves_fairness_and_quality_contract():
-    result = optimize_game(published_hftb_players(), profile=COED_RULES)
-    metrics = schedule_quality_metrics(result)
+def test_actual_weighted_ceiling_allows_better_prefix_to_spend_lower_tiers():
+    weights = _continuity_weights(player_count=15, position_count=10)
+    incumbent = (5, 0, 9, 20, 21)
+    better_prefix = (4, 1, 10, 30, 40)
+    incumbent_penalty = sum(
+        value * weight for value, weight in zip(incumbent, weights)
+    )
+    model = cp_model.CpModel()
+    choose_better_prefix = model.NewBoolVar("choose_better_prefix")
+    components = []
+    for index, (old_value, new_value) in enumerate(
+        zip(incumbent, better_prefix)
+    ):
+        component = model.NewIntVar(
+            min(old_value, new_value),
+            max(old_value, new_value),
+            f"continuity_component_{index}",
+        )
+        model.Add(
+            component
+            == old_value
+            + (new_value - old_value) * choose_better_prefix
+        )
+        components.append(component)
+    penalty = sum(
+        component * weight
+        for component, weight in zip(components, weights)
+    )
 
+    class IncumbentSolver:
+        def Value(self, _expression):
+            return incumbent_penalty
+
+    _bound_continuity_by_incumbent(model, penalty, IncumbentSolver())
+    model.Minimize(penalty)
+    solver = cp_model.CpSolver()
+    status = solver.Solve(model)
+    solved_vector = tuple(solver.Value(component) for component in components)
+
+    assert better_prefix < incumbent
+    assert better_prefix[1] > incumbent[1]
+    assert better_prefix[2] > incumbent[2]
+    assert status == cp_model.OPTIMAL
+    assert solved_vector == better_prefix
+    assert _candidate_is_no_worse(status, solved_vector, incumbent)
+
+
+def test_hftb_reference_benchmark_artifact_preserves_quality_contract():
+    report = json.loads(
+        (ROOT / "benchmarks" / "hftb-5s-reference.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    environment = report["environment"]
+    targets = report["targets"]
+    summary = report["summary"]
+    runs = report["runs"]
+
+    assert environment["fresh_processes"] >= 4
+    assert environment["warmups_excluded"] == environment["fresh_processes"]
+    assert environment["qualifying_runs"] == len(runs) >= 20
+    assert environment["nominal_budget_seconds"] == 5.0
+    assert environment["worker_count"] == 8
+    assert len(environment["commit"]) == 40
+    assert all(
+        character in "0123456789abcdef"
+        for character in environment["commit"]
+    )
+
+    prefix = tuple(targets["fairness_fallback_prefix"])
+    floor = tuple(targets["continuity_floor"])
+    assert prefix == (4, 210, 0)
+    assert floor == (5, 0, 9, 20, 21)
+    run_ids = {
+        (run["process_index"], run["run_index"])
+        for run in runs
+    }
+    assert len(run_ids) == len(runs)
+    assert {process_index for process_index, _run_index in run_ids} == set(
+        range(1, environment["fresh_processes"] + 1)
+    )
+    expected_runs_per_process = len(runs) // environment["fresh_processes"]
+    assert Counter(run["process_index"] for run in runs) == {
+        process_index: expected_runs_per_process
+        for process_index in range(1, environment["fresh_processes"] + 1)
+    }
+    for run in runs:
+        metrics = run["metrics"]
+        assert (
+            metrics["playing_time_spread"],
+            metrics["scaled_deviation"],
+            metrics["fallback_innings"],
+        ) == prefix
+        reconstructed_vector = continuity_vector(metrics)
+        assert tuple(run["continuity_vector"]) == reconstructed_vector
+        assert reconstructed_vector <= floor
+        assert run["solver_status"] in {"FEASIBLE", "OPTIMAL"}
+        assert run["prefix_pass"] is True
+        assert run["quality_pass"] is True
+
+    percentile_index = math.ceil(0.95 * len(runs)) - 1
+    elapsed = sorted(run["elapsed_seconds"] for run in runs)
+    prefix_elapsed = sorted(run["fairness_fallback_seconds"] for run in runs)
+    assert summary["solver_p95_seconds"] == elapsed[percentile_index]
+    assert summary["solver_max_seconds"] == max(elapsed)
     assert (
-        metrics["playing_time_spread"],
-        metrics["scaled_deviation"],
-        metrics["fallback_innings"],
-    ) == (4, 210, 0)
-    assert continuity_vector(metrics) <= (5, 0, 9, 20, 21)
-    assert result.solver_status in {"FEASIBLE", "OPTIMAL"}
+        summary["fairness_fallback_p95_seconds"]
+        == prefix_elapsed[percentile_index]
+    )
+    assert summary["fairness_fallback_max_seconds"] == max(prefix_elapsed)
+    assert summary["solver_p95_seconds"] <= targets["solver_p95_seconds"]
+    assert summary["solver_max_seconds"] <= targets["solver_max_seconds"]
+    assert (
+        summary["fairness_fallback_p95_seconds"]
+        <= targets["fairness_fallback_p95_seconds"]
+    )
+    assert (
+        summary["fairness_fallback_max_seconds"]
+        <= targets["fairness_fallback_max_seconds"]
+    )
+    assert summary["status_distribution"] == dict(
+        sorted(Counter(run["solver_status"] for run in runs).items())
+    )
+    assert summary["all_prefix_pass"] is True
+    assert summary["all_quality_pass"] is True
 
 
 def test_default_solve_budget_is_five_seconds_and_override_remains_supported(

@@ -401,22 +401,26 @@ following nominally bounded phases:
     minimize $o_1(E^{UB}+1)+e$ for up to 2.5 seconds, where $E^{UB}$ bounds total excess positions,
     and preserve the one-inning incumbent. The coefficient keeps every unit
     of $o_1$ strictly more important than all possible changes in $e$.
-    \item \textbf{Two-position phase.} If look-ahead proves the value of $e$
-    or reaches its analytic lower bound of zero, fix that value immediately.
-    Otherwise, first test the $e=0$ slice inside the existing phase budget,
-    then minimize $e$ with the unspent remainder. A proved value is fixed; an
-    unproved incumbent becomes a non-worsening upper bound.
-    \item \textbf{Two-inning phase.} With the secured $o_1$ and $e$ ceilings,
-    minimize $o_2c_2+vc_v+q$ in two concurrent four-worker searches sharing
-    the existing eight-worker computational envelope. One search is an
-    ordinary proof-capable CP-SAT run; the second is a hint-seeded large-
-    neighborhood search with a different seed. Retain the lexicographically
-    better legal candidate and impose its non-worsening $o_2$ ceiling.
+    \item \textbf{Two-position phase.} If the preceding $o_1$ tier is proved,
+    test the $e=0$ slice inside the existing phase budget and otherwise
+    minimize $e$ with the unspent remainder. A proved value is fixed. If
+    $o_1$ remains unproved, do not independently cap $e$: retain the complete
+    ceiling $J_C\leq J_C^{inc}$ so a later improvement in $o_1$ may
+    legitimately spend lower-priority quality.
+    \item \textbf{Two-inning phase.} When $o_1$ and $e$ are both proved,
+    minimize $o_2c_2+vc_v+a$; otherwise keep the complete $J_C$ objective
+    active. Run two concurrent four-worker searches sharing the existing
+    eight-worker computational envelope. One is an ordinary proof-capable
+    CP-SAT run; the second is a hint-seeded large-neighborhood search with a
+    different seed. Retain the lexicographically better legal candidate. Fix
+    $o_2$ only when its prefix is proved; otherwise preserve the full weighted
+    incumbent ceiling.
     \item \textbf{Tail-continuity phase.} Use the remaining nominal budget to
-    minimize $vc_v+q$. Because a hint is not a quality guarantee, constrain
-    this tail objective to be no larger than the incumbent value and accept a
-    timed candidate only when its full $(o_1,e,o_2,v,q)$ vector is
-    lexicographically no worse than that incumbent.
+    minimize $vc_v+a$ only when every earlier continuity tier is proved; if
+    not, continue minimizing $J_C$. Because a hint is not a quality guarantee,
+    constrain the complete weighted objective to be no larger than the
+    incumbent and accept a timed candidate only when its full
+    $(o_1,e,o_2,v,a)$ vector is lexicographically no worse than that incumbent.
 \end{enumerate}
 
 Each accepted phase returns a legal assignment. Higher-priority values are
