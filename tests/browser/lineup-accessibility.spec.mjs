@@ -78,6 +78,95 @@ function lineupTable(page) {
   return page.getByRole("table", { name: "Seven-inning lineup" });
 }
 
+function lineupScrollRegion(page) {
+  return page.getByRole("region", {
+    name: "Scrollable seven-inning lineup",
+  });
+}
+
+async function stickyMatrixGeometry(page) {
+  const region = lineupScrollRegion(page);
+  await region.evaluate((element) => {
+    // Chromium reports pre-zoom scrollWidth/scrollHeight units under CSS zoom.
+    // An intentionally oversized target reliably clamps to the true visual edge.
+    element.scrollLeft = Number.MAX_SAFE_INTEGER;
+    element.scrollTop = Number.MAX_SAFE_INTEGER;
+  });
+  await expect.poll(
+    () => region.evaluate((element) => element.scrollLeft),
+  ).toBeGreaterThan(0);
+  await expect.poll(
+    () => region.evaluate((element) => element.scrollTop),
+  ).toBeGreaterThan(0);
+
+  return region.evaluate((element) => {
+    const rectangle = (target) => {
+      const bounds = target.getBoundingClientRect();
+      return {
+        bottom: bounds.bottom,
+        left: bounds.left,
+        right: bounds.right,
+        top: bounds.top,
+      };
+    };
+    const table = element.querySelector("table");
+    const corner = table.querySelector("thead th:first-child");
+    const benchHeader = table.querySelector("thead th:last-child");
+    const lastRow = table.querySelector("tbody tr:last-child");
+    const inningHeader = lastRow.querySelector("th");
+    const benchCell = lastRow.querySelector("td:last-child");
+    const cornerStyle = getComputedStyle(corner);
+    const columnStyle = getComputedStyle(benchHeader);
+    const rowStyle = getComputedStyle(inningHeader);
+    const isOpaque = (color) => color !== "transparent"
+      && color !== "rgba(0, 0, 0, 0)";
+    return {
+      benchCell: rectangle(benchCell),
+      benchHeader: rectangle(benchHeader),
+      corner: rectangle(corner),
+      inningHeader: rectangle(inningHeader),
+      region: rectangle(element),
+      styles: {
+        columnBackgroundOpaque: isOpaque(columnStyle.backgroundColor),
+        columnBorder: columnStyle.borderBottomStyle,
+        columnPosition: columnStyle.position,
+        columnZ: Number(columnStyle.zIndex),
+        cornerBackgroundOpaque: isOpaque(cornerStyle.backgroundColor),
+        cornerPosition: cornerStyle.position,
+        cornerZ: Number(cornerStyle.zIndex),
+        rowBackgroundOpaque: isOpaque(rowStyle.backgroundColor),
+        rowBorder: rowStyle.borderRightStyle,
+        rowPosition: rowStyle.position,
+        rowZ: Number(rowStyle.zIndex),
+      },
+    };
+  });
+}
+
+function expectStickyContext(geometry) {
+  const tolerance = 3;
+  expect(Math.abs(geometry.corner.top - geometry.region.top)).toBeLessThanOrEqual(tolerance);
+  expect(Math.abs(geometry.corner.left - geometry.region.left)).toBeLessThanOrEqual(tolerance);
+  expect(Math.abs(geometry.benchHeader.top - geometry.region.top)).toBeLessThanOrEqual(tolerance);
+  expect(Math.abs(geometry.inningHeader.left - geometry.region.left)).toBeLessThanOrEqual(tolerance);
+  expect(geometry.benchHeader.left).toBeLessThan(geometry.region.right);
+  expect(geometry.benchHeader.right).toBeLessThanOrEqual(geometry.region.right + tolerance);
+  expect(geometry.benchCell.left).toBeLessThan(geometry.region.right);
+  expect(geometry.benchCell.right).toBeLessThanOrEqual(geometry.region.right + tolerance);
+  expect(geometry.inningHeader.top).toBeLessThan(geometry.region.bottom);
+  expect(geometry.inningHeader.bottom).toBeLessThanOrEqual(geometry.region.bottom + tolerance);
+  expect(geometry.styles.columnPosition).toBe("sticky");
+  expect(geometry.styles.rowPosition).toBe("sticky");
+  expect(geometry.styles.cornerPosition).toBe("sticky");
+  expect(geometry.styles.columnBackgroundOpaque).toBe(true);
+  expect(geometry.styles.rowBackgroundOpaque).toBe(true);
+  expect(geometry.styles.cornerBackgroundOpaque).toBe(true);
+  expect(geometry.styles.columnBorder).not.toBe("none");
+  expect(geometry.styles.rowBorder).not.toBe("none");
+  expect(geometry.styles.cornerZ).toBeGreaterThan(geometry.styles.columnZ);
+  expect(geometry.styles.columnZ).toBeGreaterThan(geometry.styles.rowZ);
+}
+
 async function lineupRows(page) {
   const rows = lineupTable(page).getByRole("row");
   const values = [];
@@ -102,13 +191,16 @@ function namesFromList(value) {
 async function assertSemanticSchedule(page, csvRows) {
   const table = lineupTable(page);
   await expect(table).toBeVisible();
+  await expect(table.locator("caption")).toHaveText("Seven-inning lineup");
   await expect(table.getByRole("columnheader")).toHaveText([
     "Inning", ...POSITIONS, "Bench",
   ]);
+  await expect(table.locator('thead th[scope="col"]')).toHaveCount(12);
   await expect(table.getByRole("row")).toHaveCount(8);
   await expect(table.getByRole("rowheader")).toHaveText([
     "1", "2", "3", "4", "5", "6", "7",
   ]);
+  await expect(table.locator('tbody th[scope="row"]')).toHaveCount(7);
 
   const visibleRows = await lineupRows(page);
   expect(visibleRows).toHaveLength(csvRows.length);
@@ -128,7 +220,7 @@ async function assertSemanticSchedule(page, csvRows) {
   }
 }
 
-test("issue #19 shows one semantic seven-inning lineup matching the full CSV", async ({ page }, testInfo) => {
+test("issues #19 and #23 show one sticky semantic lineup matching the full CSV", async ({ page }, testInfo) => {
   test.setTimeout(180_000);
   await page.goto("/");
   await renamePitcher(page, testInfo);
@@ -151,32 +243,50 @@ test("issue #19 shows one semantic seven-inning lineup matching the full CSV", a
   ).not.toHaveCount(0);
 
   if (testInfo.project.name === "mobile-touch") {
-    const scrollRegion = page.getByRole("region", {
-      name: "Scrollable seven-inning lineup",
-    });
+    const scrollRegion = lineupScrollRegion(page);
     await expect(scrollRegion).toHaveAttribute("tabindex", "0");
     expect(await scrollRegion.evaluate(
       (region) => region.scrollWidth > region.clientWidth,
     )).toBe(true);
+    expect(await scrollRegion.evaluate(
+      (region) => region.scrollHeight > region.clientHeight,
+    )).toBe(true);
+    await scrollRegion.evaluate((region) => {
+      region.scrollLeft = 0;
+      region.scrollTop = 0;
+    });
     await scrollRegion.focus();
     await expect(scrollRegion).toBeFocused();
     await page.keyboard.press("ArrowRight");
     await expect.poll(
       () => scrollRegion.evaluate((region) => region.scrollLeft),
     ).toBeGreaterThan(0);
+    await page.keyboard.press("ArrowDown");
+    await expect.poll(
+      () => scrollRegion.evaluate((region) => region.scrollTop),
+    ).toBeGreaterThan(0);
+    expectStickyContext(await stickyMatrixGeometry(page));
     expect(await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth + 1,
     )).toBe(true);
-    await page.evaluate(() => {
-      document.documentElement.style.zoom = "200%";
-    });
+    // A 195-CSS-pixel viewport is the effective layout width of this
+    // 390-pixel mobile viewport at 200% browser zoom. CSS `zoom` is not a
+    // browser-zoom emulation and gives Chromium incorrect scroll extents.
+    await page.setViewportSize({ width: 195, height: 422 });
     expect(await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth + 1,
     )).toBe(true);
+    expect(await scrollRegion.evaluate(
+      (region) => region.getBoundingClientRect().right <= window.innerWidth + 1,
+    )).toBe(true);
+    expectStickyContext(await stickyMatrixGeometry(page));
     await expect(lineupTable(page).getByRole("row")).toHaveCount(8);
-    await page.evaluate(() => {
-      document.documentElement.style.zoom = "";
-    });
+    await page.setViewportSize({ width: 390, height: 844 });
+  } else {
+    const scrollRegion = lineupScrollRegion(page);
+    expect(await scrollRegion.evaluate(
+      (region) => region.scrollHeight === region.clientHeight,
+    )).toBe(true);
   }
 
   await choose(
@@ -214,6 +324,33 @@ test("issue #19 shows one semantic seven-inning lineup matching the full CSV", a
   }
 
   if (testInfo.project.name === "mobile-touch") {
+    const scrollRegion = lineupScrollRegion(page);
+    await scrollRegion.evaluate((region) => {
+      region.scrollLeft = region.scrollWidth;
+    });
+    await expect.poll(
+      () => scrollRegion.evaluate((region) => region.scrollLeft),
+    ).toBeGreaterThan(0);
+    const horizontalContext = await scrollRegion.evaluate((region) => {
+      const regionBounds = region.getBoundingClientRect();
+      const lastRow = region.querySelector("tbody tr:last-child");
+      const inningBounds = lastRow.querySelector("th").getBoundingClientRect();
+      const benchBounds = lastRow.querySelector("td:last-child").getBoundingClientRect();
+      return {
+        benchLeft: benchBounds.left,
+        benchRight: benchBounds.right,
+        inningLeft: inningBounds.left,
+        regionLeft: regionBounds.left,
+        regionRight: regionBounds.right,
+      };
+    });
+    expect(Math.abs(
+      horizontalContext.inningLeft - horizontalContext.regionLeft,
+    )).toBeLessThanOrEqual(3);
+    expect(horizontalContext.benchLeft).toBeLessThan(horizontalContext.regionRight);
+    expect(horizontalContext.benchRight).toBeLessThanOrEqual(
+      horizontalContext.regionRight + 3,
+    );
     expect(await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth + 1,
     )).toBe(true);

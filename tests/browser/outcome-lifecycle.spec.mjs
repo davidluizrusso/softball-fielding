@@ -101,7 +101,7 @@ async function expectCurrentResultInvalidated(page) {
   await expect(page.getByText(CHANGED_MESSAGE, { exact: true })).toBeVisible();
 }
 
-test("optimization error appears before roster details and recovers after an input correction", async ({ page }, testInfo) => {
+test("readiness error appears before roster details and recovers after an input correction", async ({ page }, testInfo) => {
   test.setTimeout(120_000);
   await page.goto("/");
 
@@ -110,14 +110,13 @@ test("optimization error appears before roster details and recovers after an inp
   await setPosition(page, "P", false, testInfo);
   await savePlayer(page, testInfo);
 
-  await activate(
-    page.getByRole("button", { name: "Optimize seven innings" }),
-    testInfo,
-  );
   const optimizationError = page.locator("[data-testid='stAlert']").filter({
     hasText: UNCOVERED_P_ERROR,
   }).first();
   await expect(optimizationError).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Optimize seven innings" }),
+  ).toBeDisabled();
   await expect(
     page.getByRole("heading", { name: "Optimized lineup" }),
   ).toBeHidden();
@@ -137,7 +136,10 @@ test("optimization error appears before roster details and recovers after an inp
   await setPosition(page, "P", true, testInfo);
   await savePlayer(page, testInfo);
   await expect(optimizationError).toBeHidden();
-  await expect(page.getByText(CHANGED_MESSAGE, { exact: true })).toBeVisible();
+  await expect(page.getByText(CHANGED_MESSAGE, { exact: true })).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "Optimize seven innings" }),
+  ).toBeEnabled();
 
   await optimizeSuccessfully(page, testInfo);
   await expect(optimizationError).toBeHidden();

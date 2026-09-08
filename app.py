@@ -14,7 +14,7 @@ from softball_fielding.runtime_bootstrap import ensure_current_package
 # Community Cloud can rerun an updated app.py inside a worker whose imported
 # package modules still contain pre-deploy code. This version-gated operation
 # is a no-op for a coherent process and lock-serializes stale-graph repair.
-REQUIRED_PACKAGE_VERSION = 2
+REQUIRED_PACKAGE_VERSION = 3
 ensure_current_package(REQUIRED_PACKAGE_VERSION)
 
 from softball_fielding import (
@@ -23,10 +23,14 @@ from softball_fielding import (
     LineupError,
     OPEN_RULES,
     Player,
-    lineup_plan,
+    lineup_preflight,
     optimize_game,
 )
 from softball_fielding.models import INNINGS, POSITIONS
+from softball_fielding.result_identity import (
+    create_result_identity,
+    solver_status_explanation,
+)
 from softball_fielding.team_setups import team_red_roster
 
 
@@ -60,8 +64,9 @@ st.markdown(
     }
     .seven-inning-lineup-scroll {
         max-width: 100%;
-        overflow-x: auto;
+        overflow: auto;
         overscroll-behavior-x: contain;
+        position: relative;
         -webkit-overflow-scrolling: touch;
     }
     .seven-inning-lineup-scroll:focus-visible {
@@ -69,7 +74,8 @@ st.markdown(
         outline-offset: 0.15rem;
     }
     .seven-inning-lineup {
-        border-collapse: collapse;
+        border-collapse: separate;
+        border-spacing: 0;
         min-width: 72rem;
         width: 100%;
     }
@@ -93,9 +99,31 @@ st.markdown(
     .seven-inning-lineup td:last-child {
         min-width: 10rem;
     }
+    .seven-inning-lineup thead th {
+        background-color: var(--background-color, #ffffff);
+        border-top: 1px solid rgba(49, 51, 63, 0.2);
+        position: sticky;
+        top: 0;
+        z-index: 2;
+    }
+    .seven-inning-lineup tbody th {
+        background-color: var(--background-color, #ffffff);
+        border-right: 1px solid rgba(49, 51, 63, 0.2);
+        left: 0;
+        position: sticky;
+        z-index: 1;
+    }
+    .seven-inning-lineup thead th:first-child {
+        border-right: 1px solid rgba(49, 51, 63, 0.2);
+        left: 0;
+        z-index: 3;
+    }
     @media (max-width: 640px) {
         .block-container {
             padding: 0.8rem 0.75rem 3rem;
+        }
+        .seven-inning-lineup-scroll {
+            max-height: min(60vh, 34rem);
         }
         h1 {
             font-size: 1.85rem !important;
@@ -254,6 +282,7 @@ def initialize_setup(
         "setup-choice",
         "pending-setup-target",
         "result",
+        "result_identity",
         "result_fingerprint",
         "last_attempt_fingerprint",
         "optimization_seconds",
@@ -290,6 +319,7 @@ def initialize_setup(
     st.session_state.confirm_reset = False
     st.session_state.confirm_setup_change = False
     st.session_state.result = None
+    st.session_state.result_identity = None
     st.session_state.error = None
     st.session_state.inputs_changed = False
     if setup_key == HERE_FOR_THE_BEER_SETUP:
@@ -495,6 +525,7 @@ def save_player_edit(
     if committed_inputs_changed:
         st.session_state.roster_revision += 1
         st.session_state.result = None
+        st.session_state.result_identity = None
         st.session_state.error = None
 
 
@@ -906,26 +937,6 @@ st.caption(
 )
 st.caption(f"Active profile: **{league_rules.label}**")
 
-readiness_error = None
-try:
-    planned_positions, _minimum_women = lineup_plan(
-        len(named_available), available_women, league_rules
-    )
-    omitted_positions = [
-        position for position in POSITIONS if position not in planned_positions
-    ]
-    omitted_text = (
-        f" without {' and '.join(omitted_positions)}"
-        if omitted_positions
-        else ""
-    )
-    st.caption(
-        f"**Ready for {len(planned_positions)} fielders{omitted_text}.**"
-    )
-except LineupError as error:
-    readiness_error = str(error)
-    st.warning(readiness_error)
-
 player_problems, blocking_roster_messages = roster_problems(roster)
 blank_player_count = sum(
     any(severity == "warning" for severity, _message in messages)
@@ -941,6 +952,29 @@ if blocking_roster_messages:
         dict.fromkeys(blocking_roster_messages)
     ))
 
+readiness_error = None
+if not blocking_roster_messages:
+    try:
+        preflight = lineup_preflight(
+            players_from_roster(roster),
+            profile=league_rules,
+        )
+        planned_positions = preflight.active_positions
+        omitted_positions = [
+            position for position in POSITIONS if position not in planned_positions
+        ]
+        omitted_text = (
+            f" without {' and '.join(omitted_positions)}"
+            if omitted_positions
+            else ""
+        )
+        st.caption(
+            f"**Ready for {len(planned_positions)} fielders{omitted_text}.**"
+        )
+    except (LineupError, ValueError) as error:
+        readiness_error = str(error)
+        st.warning(readiness_error)
+
 current_fingerprint = roster_fingerprint(roster, league_rules.key)
 last_attempt_fingerprint = st.session_state.get("last_attempt_fingerprint")
 if (
@@ -948,6 +982,7 @@ if (
     and last_attempt_fingerprint != current_fingerprint
 ):
     st.session_state.result = None
+    st.session_state.result_identity = None
     st.session_state.error = None
     st.session_state.last_attempt_fingerprint = None
     st.session_state.inputs_changed = True
@@ -1085,6 +1120,16 @@ if optimize_clicked:
         )
         optimization_seconds = perf_counter() - optimization_started
         st.session_state.result = result
+        result_setup_label = (
+            "Custom"
+            if active_setup == BLANK_SETUP
+            else SETUP_LABELS[active_setup]
+        )
+        st.session_state.result_identity = create_result_identity(
+            result_setup_label,
+            league_rules.label,
+            league_rules.key,
+        )
         st.session_state.result_fingerprint = current_fingerprint
         st.session_state.last_attempt_fingerprint = current_fingerprint
         st.session_state.optimization_seconds = optimization_seconds
@@ -1092,10 +1137,13 @@ if optimize_clicked:
         st.session_state.inputs_changed = False
     except (LineupError, ValueError) as error:
         st.session_state.result = None
+        st.session_state.result_identity = None
         st.session_state.error = str(error)
         st.session_state.last_attempt_fingerprint = current_fingerprint
         st.session_state.inputs_changed = False
     except Exception:
+        st.session_state.result = None
+        st.session_state.result_identity = None
         raise
     finally:
         optimization_dancer.empty()
@@ -1109,6 +1157,19 @@ if st.session_state.get("error"):
 
 result = st.session_state.get("result")
 if result:
+    result_identity = st.session_state.get("result_identity")
+    if result_identity is None:
+        result_setup_label = (
+            "Custom"
+            if active_setup == BLANK_SETUP
+            else SETUP_LABELS[active_setup]
+        )
+        result_identity = create_result_identity(
+            result_setup_label,
+            league_rules.label,
+            league_rules.key,
+        )
+        st.session_state.result_identity = result_identity
     st.divider()
     st.subheader("Optimized lineup")
     elapsed_seconds = st.session_state.get("optimization_seconds")
@@ -1118,10 +1179,16 @@ if result:
         else ""
     )
     st.caption(
-        f"{league_rules.label} profile · "
+        f"{result_identity.setup_label} · "
+        f"{result_identity.profile_label} profile · "
         f"{result.lineup_size} fielders per inning · "
-        f"Solver status: {result.solver_status.title()}"
+        f"Created {result_identity.created_at_text} · "
+        f"Snapshot {result_identity.snapshot_id}"
         f"{timing_text}"
+    )
+    st.success(
+        f"{result.solver_status.title()}: "
+        f"{solver_status_explanation(result.solver_status)}"
     )
 
     lineup = schedule_table(result)
@@ -1130,7 +1197,7 @@ if result:
     st.download_button(
         "Download full lineup CSV",
         lineup.to_csv().encode("utf-8"),
-        file_name="softball_lineup.csv",
+        file_name=result_identity.filename,
         mime="text/csv",
         width="stretch",
         disabled=interaction_locked,
@@ -1359,6 +1426,7 @@ for index, record in enumerate(details_roster):
                 st.session_state.pending_remove_player_id = None
                 st.session_state.roster_revision += 1
                 st.session_state.result = None
+                st.session_state.result_identity = None
                 st.session_state.error = None
                 st.rerun()
             if cancel_remove_clicked:

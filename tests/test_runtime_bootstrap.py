@@ -34,17 +34,18 @@ def test_stale_package_graph_is_atomically_reloaded_before_team_red_solve():
         with ThreadPoolExecutor(max_workers=4) as executor:
             list(
                 executor.map(
-                    lambda _index: runtime_bootstrap.ensure_current_package(2),
+                    lambda _index: runtime_bootstrap.ensure_current_package(3),
                     range(8),
                 )
             )
 
-        assert package.RUNTIME_PACKAGE_VERSION == 2
+        assert package.RUNTIME_PACKAGE_VERSION == 3
         assert package.Player is models.Player
         assert optimizer.Player is models.Player
         assert optimizer.COED_RULES is models.COED_RULES
         assert team_setups.POSITIONS is models.POSITIONS
         assert package.optimize_game is optimizer.optimize_game
+        assert package.lineup_preflight is optimizer.lineup_preflight
 
         roster = team_setups.team_red_roster()
         players = [

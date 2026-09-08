@@ -1,4 +1,5 @@
 from copy import deepcopy
+from dataclasses import replace
 from html import unescape
 from pathlib import Path
 import re
@@ -57,6 +58,17 @@ def fake_result(players, *, profile=COED_RULES, progress_callback=None):
             for candidate in players
         },
         solver_status="OPTIMAL",
+    )
+
+
+def fake_feasible_result(players, *, profile=COED_RULES, progress_callback=None):
+    return replace(
+        fake_result(
+            players,
+            profile=profile,
+            progress_callback=progress_callback,
+        ),
+        solver_status="FEASIBLE",
     )
 
 
@@ -358,6 +370,7 @@ def test_neutral_setup_change_cancel_preserves_and_confirm_reinitializes(monkeyp
         for record in app.session_state["roster"]
     ]
     preserved_result = app.session_state["result"]
+    preserved_identity = app.session_state["result_identity"]
     preserved_fingerprint = app.session_state["result_fingerprint"]
 
     next(
@@ -378,6 +391,7 @@ def test_neutral_setup_change_cancel_preserves_and_confirm_reinitializes(monkeyp
     assert app.session_state["active_setup"] == "here-for-the-beer"
     assert app.session_state["roster"] == preserved_roster
     assert app.session_state["result"] == preserved_result
+    assert app.session_state["result_identity"] == preserved_identity
     assert app.session_state["result_fingerprint"] == preserved_fingerprint
     assert app.session_state["league-profile"] == "open"
     assert not availability_checkbox(app, first_id).value
@@ -401,6 +415,7 @@ def test_neutral_setup_change_cancel_preserves_and_confirm_reinitializes(monkeyp
     assert app.session_state["next_player_id"] == 14
     assert availability_checkbox(app, "player-1").value
     assert app.session_state["result"] is None
+    assert app.session_state["result_identity"] is None
     assert "result_fingerprint" not in app.session_state.filtered_state
     assert "pending-setup-target" not in app.session_state.filtered_state
 
@@ -459,6 +474,21 @@ def test_app_loads_csv_defaults_and_optimizes(monkeypatch):
         "Optimized in" in caption.value and "seconds" in caption.value
         for caption in app.caption
     )
+    result_identity = app.session_state["result_identity"]
+    assert result_identity.setup_label == "Here For The Beer"
+    assert result_identity.profile_key == "coed"
+    assert re.fullmatch(
+        r"here-for-the-beer_coed_\d{8}T\d{6}Z_[a-f0-9]{8}\.csv",
+        result_identity.filename,
+    )
+    assert any(
+        f"Snapshot {result_identity.snapshot_id}" in caption.value
+        for caption in app.caption
+    )
+    assert [message.value for message in app.success] == [
+        "Optimal: Legal, authoritative lineup for the current inputs. Every "
+        "documented optimization priority was proven optimal."
+    ]
     assert not any(
         selectbox.label in {"Lineup view", "Inning"}
         for selectbox in app.selectbox
@@ -492,6 +522,7 @@ def test_app_loads_csv_defaults_and_optimizes(monkeypatch):
         subheader.value == "Optimized lineup" for subheader in app.subheader
     )
     assert not app.dataframe
+    assert app.session_state["result_identity"] is None
     assert any(
         info.value == "Inputs changed — optimize again." for info in app.info
     )
@@ -516,6 +547,7 @@ def test_app_surfaces_optimizer_errors_without_showing_a_stale_lineup(monkeypatc
         subheader.value == "Optimized lineup" for subheader in app.subheader
     )
     assert not app.dataframe
+    assert app.session_state["result_identity"] is None
 
     first_woman_id = next(
         record["id"]
@@ -527,6 +559,134 @@ def test_app_surfaces_optimizer_errors_without_showing_a_stale_lineup(monkeypatc
     assert not app.error
     assert any(
         info.value == "Inputs changed — optimize again." for info in app.info
+    )
+
+
+@pytest.mark.parametrize(
+    ("absent_names", "position"),
+    [
+        (("Dung",), "P"),
+        (("Justin", "Ryan"), "1B"),
+        (("AP", "Marty"), "SS"),
+    ],
+)
+def test_team_red_readiness_blocks_uncovered_positions_and_recovers(
+    monkeypatch, absent_names, position
+):
+    optimizer = Mock(side_effect=fake_result)
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    app = choose_neutral_setup(
+        AppTest.from_file(NEUTRAL_APP_PATH).run(timeout=20),
+        "team-red",
+    )
+    all_ids = {
+        record["id"]
+        for record in app.session_state["roster"]
+    }
+    absent_ids = {
+        record["id"]
+        for record in app.session_state["roster"]
+        if record["name"] in absent_names
+    }
+
+    set_available_player_ids(app, all_ids.difference(absent_ids))
+
+    message = (
+        "No available player is eligible for the following required "
+        f"position(s): {position}."
+    )
+    assert message in {warning.value for warning in app.warning}
+    assert not any(
+        caption.value.startswith("**Ready for") for caption in app.caption
+    )
+    optimize_button = next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    )
+    assert optimize_button.disabled
+    assert optimize_button.help == message
+    optimizer.assert_not_called()
+
+    set_available_player_ids(app, all_ids)
+
+    optimize_button = next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    )
+    assert not optimize_button.disabled
+    assert not any(warning.value == message for warning in app.warning)
+    assert any(
+        caption.value.startswith("**Ready for 10 fielders")
+        for caption in app.caption
+    )
+    optimize_button.click().run(timeout=20)
+    optimizer.assert_called_once()
+
+
+def test_feasible_result_is_authoritative_without_claiming_full_proof(monkeypatch):
+    optimizer = Mock(side_effect=fake_feasible_result)
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
+
+    next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    ).click().run(timeout=20)
+
+    assert [message.value for message in app.success] == [
+        "Feasible: Legal, authoritative lineup for the current inputs. Not every "
+        "possible improvement was proven within the configured search budget."
+    ]
+    assert "proven optimal" not in app.success[0].value
+
+
+def test_reoptimization_replaces_result_identity_but_noop_edit_preserves_it(
+    monkeypatch,
+):
+    optimizer = Mock(side_effect=fake_result)
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
+    optimize = next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    )
+    optimize.click().run(timeout=20)
+    first_identity = app.session_state["result_identity"]
+
+    next(button for button in app.button if button.label == "Edit Kevin").click().run(
+        timeout=20
+    )
+    next(button for button in app.button if button.label == "Save changes").click().run(
+        timeout=20
+    )
+    assert app.session_state["result_identity"] == first_identity
+
+    next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    ).click().run(timeout=20)
+    second_identity = app.session_state["result_identity"]
+    assert second_identity.snapshot_id != first_identity.snapshot_id
+    assert second_identity.filename != first_identity.filename
+
+
+def test_team_red_result_identity_uses_published_setup_not_player_names(monkeypatch):
+    optimizer = Mock(side_effect=fake_result)
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    app = choose_neutral_setup(
+        AppTest.from_file(NEUTRAL_APP_PATH).run(timeout=20),
+        "team-red",
+    )
+
+    next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    ).click().run(timeout=20)
+
+    identity = app.session_state["result_identity"]
+    assert identity.setup_label == "Team Red"
+    assert re.fullmatch(
+        r"team-red_open_\d{8}T\d{6}Z_[a-f0-9]{8}\.csv",
+        identity.filename,
+    )
+    assert not any(
+        record["name"].casefold().replace(" ", "-") in identity.filename
+        for record in app.session_state["roster"]
+        if len(record["name"]) > 4
     )
 
 
@@ -685,6 +845,7 @@ def test_add_edit_remove_and_reset_roster(monkeypatch):
 
     assert app.session_state["roster"] == original_roster
     assert app.session_state["result"] is None
+    assert app.session_state["result_identity"] is None
     assert not any(
         subheader.value == "Optimized lineup" for subheader in app.subheader
     )
@@ -777,6 +938,7 @@ def test_noop_player_save_preserves_current_result(monkeypatch):
     original_revision = app.session_state["roster_revision"]
     original_attempt_fingerprint = app.session_state["last_attempt_fingerprint"]
     original_result_fingerprint = app.session_state["result_fingerprint"]
+    original_result_identity = app.session_state["result_identity"]
     original_optimization_seconds = app.session_state["optimization_seconds"]
     next(button for button in app.button if button.label == "Edit Kevin").click().run(
         timeout=20
@@ -800,6 +962,7 @@ def test_noop_player_save_preserves_current_result(monkeypatch):
         == original_attempt_fingerprint
     )
     assert app.session_state["result_fingerprint"] == original_result_fingerprint
+    assert app.session_state["result_identity"] == original_result_identity
     assert app.session_state["optimization_seconds"] == original_optimization_seconds
     optimizer.assert_called_once()
     assert any(
@@ -1396,8 +1559,26 @@ def test_app_presents_legal_active_positions_for_each_lineup_size(
         for record in app.session_state["roster"]
         if record["gender"] == "Man"
     ]
+    if lineup_size == 8:
+        legal_eight_names = {
+            "Taylor",
+            "Arielle",
+            "Jenn",
+            "Brian",
+            "David",
+            "Dung",
+            "Kevin",
+            "Carsten",
+        }
+        selected_player_ids = [
+            record["id"]
+            for record in app.session_state["roster"]
+            if record["name"] in legal_eight_names
+        ]
+    else:
+        selected_player_ids = [*women[:women_count], *men[:men_count]]
     set_available_player_ids(
-        app, [*women[:women_count], *men[:men_count]]
+        app, selected_player_ids
     )
 
     available_count = women_count + men_count

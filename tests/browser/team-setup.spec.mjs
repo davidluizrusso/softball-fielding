@@ -94,6 +94,30 @@ test("neutral setup chooser isolates teams and switches only after confirmation"
     await expect(page.getByRole("combobox", { name: "Gender" })).toHaveCount(0);
     await activate(page.getByRole("button", { name: "Cancel" }), testInfo);
 
+    const dungAvailability = page.getByRole("checkbox", {
+      name: "Dung",
+      exact: true,
+    });
+    await activate(dungAvailability.locator("xpath=ancestor::label"), testInfo);
+    await expect(dungAvailability).not.toBeChecked();
+    await expect(page.getByText(
+      /No available player is eligible for the following required position\(s\): P\./,
+    )).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Optimize seven innings" }),
+    ).toBeDisabled();
+    await expect(page.getByText(/Ready for 10 fielders/)).toHaveCount(0);
+
+    await activate(dungAvailability.locator("xpath=ancestor::label"), testInfo);
+    await expect(dungAvailability).toBeChecked();
+    await expect(page.getByText(
+      /No available player is eligible for the following required position\(s\): P\./,
+    )).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Optimize seven innings" }),
+    ).toBeEnabled();
+    await expect(page.getByText(/Ready for 10 fielders/)).toBeVisible();
+
     await activate(
       page.getByRole("button", { name: "Optimize seven innings" }),
       testInfo,
@@ -106,6 +130,17 @@ test("neutral setup chooser isolates teams and switches only after confirmation"
     await expect(
       page.getByRole("table", { name: "Seven-inning lineup" }).getByRole("row"),
     ).toHaveCount(8);
+    await expect(page.getByText(
+      /^(Optimal|Feasible): Legal, authoritative lineup for the current inputs\./,
+    )).toBeVisible();
+    const downloadPromise = page.waitForEvent("download");
+    await activate(
+      page.getByRole("button", { name: "Download full lineup CSV" }),
+      testInfo,
+    );
+    expect((await downloadPromise).suggestedFilename()).toMatch(
+      /^team-red_open_\d{8}T\d{6}Z_[a-f0-9]{8}\.csv$/,
+    );
   });
 
   await test.step("a second browser session starts clean and can choose blank", async () => {

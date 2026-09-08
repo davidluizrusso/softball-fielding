@@ -85,6 +85,13 @@ test("issues #1, #3, and #19 keep the complete game-day outcome visible and curr
   await expect(resultHeading).toBeVisible({ timeout: 30_000 });
   await expect(dancer).toBeHidden();
   await expect(status).toBeHidden();
+  await expect(page.getByText(
+    /^(Optimal|Feasible): Legal, authoritative lineup for the current inputs\./,
+  )).toBeVisible();
+  const identityText = await page.getByText(
+    /Here For The Beer.*Created.*Snapshot [a-f0-9]{8}/,
+  ).textContent();
+  const snapshotId = identityText.match(/Snapshot ([a-f0-9]{8})/)[1];
   const detailsHeading = page.getByRole("heading", {
     name: "Player details & preferences",
   });
@@ -113,12 +120,24 @@ test("issues #1, #3, and #19 keep the complete game-day outcome visible and curr
     testInfo,
   );
   const download = await downloadPromise;
-  expect(download.suggestedFilename()).toBe("softball_lineup.csv");
+  const filename = download.suggestedFilename();
+  expect(filename).toMatch(
+    /^here-for-the-beer_coed_\d{8}T\d{6}Z_[a-f0-9]{8}\.csv$/,
+  );
+  expect(filename).toContain(snapshotId);
   expect(await download.failure()).toBeNull();
   const csv = await downloadText(download);
   const csvLines = csv.trim().split(/\r?\n/);
   expect(csvLines).toHaveLength(8);
   expect(csvLines[0]).toBe("Inning,P,C,1B,2B,3B,SS,LF,LC,RC,RF,Out");
+  const repeatedDownloadPromise = page.waitForEvent("download");
+  await activate(
+    page.getByRole("button", { name: "Download full lineup CSV" }),
+    testInfo,
+  );
+  const repeatedDownload = await repeatedDownloadPromise;
+  expect(repeatedDownload.suggestedFilename()).toBe(filename);
+  expect(await downloadText(repeatedDownload)).toBe(csv);
 
   const andrew = page.getByRole("checkbox", { name: "Andrew", exact: true });
   await activate(andrew.locator("xpath=ancestor::label"), testInfo);

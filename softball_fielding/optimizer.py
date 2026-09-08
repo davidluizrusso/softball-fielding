@@ -2,6 +2,9 @@
 
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from functools import lru_cache
+from itertools import combinations
 from time import monotonic
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -127,6 +130,15 @@ class LineupError(ValueError):
     """Raised when the inputs cannot produce a legal schedule."""
 
 
+@dataclass(frozen=True)
+class LineupPreflight:
+    """Exact one-inning legality facts shared by callers and the optimizer."""
+
+    active_positions: Tuple[str, ...]
+    minimum_women: int
+    eligibility: Tuple[Tuple[str, ...], ...]
+
+
 def lineup_shortages(
     player_count: int,
     woman_count: int,
@@ -238,16 +250,150 @@ def _validate_players(players: Sequence[Player]) -> None:
         )
 
 
-def _preflight_preferences(
+def _one_inning_assignment_exists(
     players: Sequence[Player],
     active_positions: Sequence[str],
-    eligibility: Dict[int, Tuple[str, ...]],
-    profile: LeagueRules,
-) -> None:
+    eligibility: Sequence[Sequence[str]],
+    *,
+    minimum_women: int = 0,
+    require_woman_infield_and_outfield: bool = False,
+) -> bool:
+    """Return whether distinct players can satisfy one complete inning."""
+
+    eligible_players = {
+        position: tuple(
+            player_index
+            for player_index in range(len(players))
+            if position in eligibility[player_index]
+        )
+        for position in active_positions
+    }
+    position_order = tuple(
+        sorted(
+            active_positions,
+            key=lambda position: (
+                len(eligible_players[position]),
+                active_positions.index(position),
+            ),
+        )
+    )
+
+    @lru_cache(maxsize=None)
+    def search(
+        position_offset: int,
+        used_players: int,
+        women_assigned: int,
+        has_woman_infield: bool,
+        has_woman_outfield: bool,
+    ) -> bool:
+        if position_offset == len(position_order):
+            return (
+                women_assigned >= minimum_women
+                and (
+                    not require_woman_infield_and_outfield
+                    or (has_woman_infield and has_woman_outfield)
+                )
+            )
+
+        remaining_positions = position_order[position_offset:]
+        if women_assigned < minimum_women:
+            unused_eligible_women = {
+                player_index
+                for position in remaining_positions
+                for player_index in eligible_players[position]
+                if not used_players & (1 << player_index)
+                and players[player_index].is_woman
+            }
+            if women_assigned + min(
+                len(remaining_positions), len(unused_eligible_women)
+            ) < minimum_women:
+                return False
+
+        if require_woman_infield_and_outfield:
+            for has_woman, position_group in (
+                (has_woman_infield, INFIELD),
+                (has_woman_outfield, OUTFIELD),
+            ):
+                if has_woman:
+                    continue
+                if not any(
+                    position in position_group
+                    and any(
+                        not used_players & (1 << player_index)
+                        and players[player_index].is_woman
+                        for player_index in eligible_players[position]
+                    )
+                    for position in remaining_positions
+                ):
+                    return False
+
+        position = position_order[position_offset]
+        candidate_players = sorted(
+            eligible_players[position],
+            key=lambda player_index: not players[player_index].is_woman,
+        )
+        for player_index in candidate_players:
+            player_bit = 1 << player_index
+            if used_players & player_bit:
+                continue
+            is_woman = players[player_index].is_woman
+            if search(
+                position_offset + 1,
+                used_players | player_bit,
+                min(minimum_women, women_assigned + int(is_woman)),
+                has_woman_infield
+                or (is_woman and position in INFIELD),
+                has_woman_outfield
+                or (is_woman and position in OUTFIELD),
+            ):
+                return True
+        return False
+
+    return search(0, 0, 0, False, False)
+
+
+def _hall_conflict(
+    active_positions: Sequence[str],
+    eligibility: Sequence[Sequence[str]],
+) -> Optional[Tuple[Tuple[str, ...], int]]:
+    """Return the canonical smallest Hall-deficient position subset."""
+
+    eligible_by_position = {
+        position: {
+            player_index
+            for player_index, player_positions in enumerate(eligibility)
+            if position in player_positions
+        }
+        for position in active_positions
+    }
+    for subset_size in range(2, len(active_positions) + 1):
+        for position_subset in combinations(active_positions, subset_size):
+            eligible_players = set().union(
+                *(eligible_by_position[position] for position in position_subset)
+            )
+            if len(eligible_players) < subset_size:
+                return tuple(position_subset), len(eligible_players)
+    return None
+
+
+def lineup_preflight(
+    players: Iterable[Player],
+    *,
+    profile: LeagueRules = COED_RULES,
+) -> LineupPreflight:
+    """Validate that the roster can field one exact legal inning."""
+
+    player_list = tuple(players)
+    rules = resolve_league_rules(profile)
+    _validate_players(player_list)
+    active_positions, minimum_women = _lineup_rules(player_list, rules)
+    eligibility = tuple(
+        _eligible_positions(player, active_positions) for player in player_list
+    )
     uncovered = [
         position
         for position in active_positions
-        if not any(position in eligibility[index] for index in range(len(players)))
+        if not any(position in player_positions for player_positions in eligibility)
     ]
     if uncovered:
         raise LineupError(
@@ -256,18 +402,47 @@ def _preflight_preferences(
             + "."
         )
 
-    if not profile.require_woman_infield_and_outfield:
-        return
+    if not _one_inning_assignment_exists(
+        player_list,
+        active_positions,
+        eligibility,
+    ):
+        conflict = _hall_conflict(active_positions, eligibility)
+        if conflict is None:  # Hall's theorem guarantees a witness.
+            raise LineupError(
+                "No distinct-player assignment can fill every required position "
+                "with the current eligibility."
+            )
+        conflict_positions, eligible_count = conflict
+        position_noun = (
+            "position" if len(conflict_positions) == 1 else "positions"
+        )
+        player_noun = "player" if eligible_count == 1 else "players"
+        raise LineupError(
+            "No legal schedule can fill one inning because position eligibility "
+            "conflicts: "
+            + ", ".join(conflict_positions)
+            + f" require {len(conflict_positions)} distinct players but have "
+            f"only {eligible_count} eligible {player_noun} between them "
+            f"for those {position_noun}."
+        )
+
+    if not rules.require_woman_infield_and_outfield:
+        return LineupPreflight(
+            active_positions=tuple(active_positions),
+            minimum_women=minimum_women,
+            eligibility=eligibility,
+        )
 
     women_infield = any(
         player.is_woman
         and any(position in INFIELD for position in eligibility[index])
-        for index, player in enumerate(players)
+        for index, player in enumerate(player_list)
     )
     women_outfield = any(
         player.is_woman
         and any(position in OUTFIELD for position in eligibility[index])
-        for index, player in enumerate(players)
+        for index, player in enumerate(player_list)
     )
     missing_groups = []
     if not women_infield:
@@ -280,6 +455,25 @@ def _preflight_preferences(
             + " and ".join(missing_groups)
             + " position."
         )
+
+    if not _one_inning_assignment_exists(
+        player_list,
+        active_positions,
+        eligibility,
+        minimum_women=minimum_women,
+        require_woman_infield_and_outfield=True,
+    ):
+        raise LineupError(
+            "No distinct-player assignment can satisfy the Co-ed minimum-women "
+            "and infield/outfield placement rules with the current position "
+            "eligibility."
+        )
+
+    return LineupPreflight(
+        active_positions=tuple(active_positions),
+        minimum_women=minimum_women,
+        eligibility=eligibility,
+    )
 
 
 def optimize_game(
@@ -294,18 +488,17 @@ def optimize_game(
 
     player_list = tuple(players)
     rules = resolve_league_rules(profile)
-    _validate_players(player_list)
-    active_positions, minimum_women = _lineup_rules(player_list, rules)
+    preflight = lineup_preflight(player_list, profile=rules)
+    active_positions = preflight.active_positions
+    minimum_women = preflight.minimum_women
     eligibility = {
-        index: _eligible_positions(player, active_positions)
-        for index, player in enumerate(player_list)
+        index: player_eligibility
+        for index, player_eligibility in enumerate(preflight.eligibility)
     }
     fallback_eligibility = {
         index: _fallback_positions(player, active_positions)
         for index, player in enumerate(player_list)
     }
-    _preflight_preferences(player_list, active_positions, eligibility, rules)
-
     model = cp_model.CpModel()
     assignments: Dict[Tuple[int, int, str], cp_model.IntVar] = {}
     bench_assignments: Dict[Tuple[int, int], cp_model.IntVar] = {}

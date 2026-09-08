@@ -8,10 +8,18 @@ from .models import (
     Player,
     ScheduleResult,
 )
-from .optimizer import LineupError, lineup_plan, lineup_shortages, optimize_game
+from .optimizer import (
+    LineupError,
+    LineupPreflight,
+    lineup_plan,
+    lineup_preflight,
+    lineup_shortages,
+    optimize_game,
+)
 
 __all__ = [
     "LineupError",
+    "LineupPreflight",
     "COED_RULES",
     "LEAGUE_RULES",
     "OPEN_RULES",
@@ -19,6 +27,7 @@ __all__ = [
     "Player",
     "ScheduleResult",
     "lineup_plan",
+    "lineup_preflight",
     "lineup_shortages",
     "optimize_game",
 ]
@@ -26,4 +35,4 @@ __all__ = [
 # This completion marker must remain after every package import above. The
 # Streamlit bootstrap uses it to distinguish a fully rebound package graph
 # from a worker that retained pre-deploy modules.
-RUNTIME_PACKAGE_VERSION = 2
+RUNTIME_PACKAGE_VERSION = 3
