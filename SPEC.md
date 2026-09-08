@@ -127,12 +127,22 @@ Consecutive Bench innings form one stint. `A → Bench → A` contains two A
 stints and two adjacent transitions. Inning one does not itself count as a
 transition.
 
-The solver first attempts to certify the arithmetic floor/ceiling distribution
-for playing time, then uses a two-second fairness proof budget when that slice
-is infeasible or cannot be established immediately. The UI reports each active
-optimization phase. `OPTIMAL` is reported only when every higher-priority stage
-and the final weighted continuity objective are proven; otherwise a legal
-incumbent is labeled `FEASIBLE`.
+The solver uses a shared nominal five-second application budget while retaining
+caller overrides. It first attempts to certify the arithmetic floor/ceiling
+distribution for playing time, then uses up to a two-second fairness proof
+budget when that slice is infeasible or cannot be established immediately. The
+UI reports each active optimization phase. Before the final timed continuity
+pass, the model bounds the weighted objective by the best legal incumbent and
+the returned candidate is also compared using the documented lexicographic
+vector. A worse timed candidate is discarded. `OPTIMAL` is reported only when
+every higher-priority stage and the final weighted continuity objective are
+proven; otherwise a legal incumbent is labeled `FEASIBLE`.
+
+The opt-in HFTB reference benchmark runs 20 measured solves across at least
+four fresh Python processes after one excluded warm-up per process. It records
+the environment, phase boundaries, solver status, latency, and all eight
+objective metrics for every run; this wall-clock check is intentionally not a
+per-commit CI assertion.
 
 ## Output
 

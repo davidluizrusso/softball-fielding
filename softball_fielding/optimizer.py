@@ -1,6 +1,7 @@
 """Constraint-programming model for seven-inning defensive schedules."""
 
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from time import monotonic
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -40,6 +41,38 @@ def _report_progress(
 ) -> None:
     if callback is not None:
         callback(message)
+
+
+def _continuity_vector_from_solver(
+    solver: cp_model.CpSolver,
+    one_inning_stints: Sequence[cp_model.IntVar],
+    excess_position_counts: Sequence[cp_model.IntVar],
+    two_inning_stints: Sequence[cp_model.IntVar],
+    distinct_position_counts: Sequence[cp_model.IntVar],
+    state_transitions: Sequence[cp_model.IntVar],
+) -> Tuple[int, int, int, int, int]:
+    """Return the documented lexicographic continuity vector."""
+
+    return tuple(
+        sum(solver.Value(variable) for variable in variables)
+        for variables in (
+            one_inning_stints,
+            excess_position_counts,
+            two_inning_stints,
+            distinct_position_counts,
+            state_transitions,
+        )
+    )
+
+
+def _candidate_is_no_worse(
+    status: cp_model.CpSolverStatus,
+    candidate: Tuple[int, int, int, int, int],
+    incumbent: Tuple[int, int, int, int, int],
+) -> bool:
+    """Accept only solved candidates that preserve lexicographic quality."""
+
+    return status in (cp_model.OPTIMAL, cp_model.FEASIBLE) and candidate <= incumbent
 
 
 class LineupError(ValueError):
@@ -205,7 +238,7 @@ def optimize_game(
     players: Iterable[Player],
     *,
     profile: LeagueRules = COED_RULES,
-    max_solve_seconds: float = 10.0,
+    max_solve_seconds: float = 5.0,
     fairness_solve_seconds: Optional[float] = None,
     progress_callback: Optional[Callable[[str], None]] = None,
 ) -> ScheduleResult:
@@ -480,6 +513,10 @@ def optimize_game(
         + sum(distinct_position_counts) * distinct_position_cost
         + sum(state_transitions) * transition_cost
     )
+    continuity_tail_penalty = (
+        sum(distinct_position_counts) * distinct_position_cost
+        + sum(state_transitions) * transition_cost
+    )
     max_deviation_total = player_count * maximum_scaled_deviation
     fairness_objective = (
         playing_time_spread * (max_deviation_total + 1) + sum(deviations)
@@ -619,7 +656,7 @@ def optimize_game(
     ideal_stints_model.Minimize(sum(excess_position_counts))
     ideal_stints_solver = cp_model.CpSolver()
     ideal_stints_solver.parameters.max_time_in_seconds = min(
-        2.0,
+        0.25,
         max(0.1, (max_solve_seconds - (monotonic() - started_at)) * 0.45),
     )
     ideal_stints_solver.parameters.num_search_workers = 8
@@ -648,8 +685,8 @@ def optimize_game(
         )
         one_inning_solver = cp_model.CpSolver()
         one_inning_solver.parameters.max_time_in_seconds = min(
-            2.0,
-            max(0.1, (max_solve_seconds - (monotonic() - started_at)) * 0.45),
+            2.5,
+            max(0.1, (max_solve_seconds - (monotonic() - started_at)) * 0.55),
         )
         one_inning_solver.parameters.num_search_workers = 8
         one_inning_solver.parameters.random_seed = 42
@@ -687,12 +724,10 @@ def optimize_game(
     elif one_inning_proven:
         model.Add(sum(one_inning_stints) == best_one_inning)
     else:
-        # Freeze the achieved higher-priority incumbent. Allowing a smaller
-        # count here would let the next excess-position phase select its own
-        # lower-priority slice before the short-stint improvement is secured.
-        # The overall result remains truthfully FEASIBLE because this count
-        # has not been proven minimal.
-        model.Add(sum(one_inning_stints) == best_one_inning)
+        # Preserve the achieved ceiling without forbidding a later phase from
+        # discovering a strictly better higher-priority value. The overall
+        # result remains truthfully FEASIBLE because this count is unproven.
+        model.Add(sum(one_inning_stints) <= best_one_inning)
     model.clear_hints()
     for variable in (*assignments.values(), *bench_assignments.values()):
         model.AddHint(variable, one_inning_solver.Value(variable))
@@ -772,8 +807,27 @@ def optimize_game(
             )
 
         if excess_status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            solution_solver = excess_solver
-            solution_status = excess_status
+            incumbent_vector = _continuity_vector_from_solver(
+                solution_solver,
+                one_inning_stints,
+                excess_position_counts,
+                two_inning_stints,
+                distinct_position_counts,
+                state_transitions,
+            )
+            candidate_vector = _continuity_vector_from_solver(
+                excess_solver,
+                one_inning_stints,
+                excess_position_counts,
+                two_inning_stints,
+                distinct_position_counts,
+                state_transitions,
+            )
+            if _candidate_is_no_worse(
+                excess_status, candidate_vector, incumbent_vector
+            ):
+                solution_solver = excess_solver
+                solution_status = excess_status
             if excess_proven:
                 if best_excess_positions == 0:
                     for excess_positions in excess_position_counts:
@@ -786,10 +840,90 @@ def optimize_game(
                 model.Add(sum(excess_position_counts) <= best_excess_positions)
             model.clear_hints()
             for variable in (*assignments.values(), *bench_assignments.values()):
-                model.AddHint(variable, excess_solver.Value(variable))
+                model.AddHint(variable, solution_solver.Value(variable))
 
     _report_progress(progress_callback, CONSISTENCY_PROGRESS)
-    model.Minimize(consistency_penalty)
+    # Give the next lexicographic tier its own focused slice. A smaller
+    # two-inning count always outranks distinct-position and transition polish.
+    model.Minimize(
+        sum(two_inning_stints) * two_inning_cost + continuity_tail_penalty
+    )
+    two_inning_budget = min(
+        2.0,
+        max(0.1, (max_solve_seconds - (monotonic() - started_at)) * 0.95),
+    )
+
+    def solve_two_inning_neighborhood(seed: int):
+        neighborhood_model = model.clone()
+        neighborhood_solver = cp_model.CpSolver()
+        neighborhood_solver.parameters.max_time_in_seconds = two_inning_budget
+        neighborhood_solver.parameters.num_search_workers = 4
+        neighborhood_solver.parameters.random_seed = seed
+        neighborhood_solver.parameters.use_lns_only = seed == 43
+        neighborhood_status = neighborhood_solver.Solve(neighborhood_model)
+        return neighborhood_solver, neighborhood_status
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        two_inning_results = tuple(
+            executor.map(solve_two_inning_neighborhood, (42, 43))
+        )
+
+    incumbent_continuity = _continuity_vector_from_solver(
+        solution_solver,
+        one_inning_stints,
+        excess_position_counts,
+        two_inning_stints,
+        distinct_position_counts,
+        state_transitions,
+    )
+    for two_inning_solver, two_inning_status in two_inning_results:
+        if two_inning_status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            continue
+        candidate_continuity = _continuity_vector_from_solver(
+            two_inning_solver,
+            one_inning_stints,
+            excess_position_counts,
+            two_inning_stints,
+            distinct_position_counts,
+            state_transitions,
+        )
+        if _candidate_is_no_worse(
+            two_inning_status, candidate_continuity, incumbent_continuity
+        ):
+            solution_solver = two_inning_solver
+            solution_status = two_inning_status
+            incumbent_continuity = candidate_continuity
+
+    best_two_inning = incumbent_continuity[2]
+    two_inning_proven = (
+        any(
+            status == cp_model.OPTIMAL
+            for _solver, status in two_inning_results
+        )
+        or best_two_inning == 0
+    )
+    model.Add(sum(two_inning_stints) <= best_two_inning)
+    model.clear_hints()
+    for variable in (*assignments.values(), *bench_assignments.values()):
+        model.AddHint(variable, solution_solver.Value(variable))
+
+    # The first three continuity tiers now have non-worsening bounds. Use the
+    # remaining time only for distinct positions and adjacent transitions.
+    model.Minimize(continuity_tail_penalty)
+
+    incumbent_continuity = _continuity_vector_from_solver(
+        solution_solver,
+        one_inning_stints,
+        excess_position_counts,
+        two_inning_stints,
+        distinct_position_counts,
+        state_transitions,
+    )
+    incumbent_penalty = solution_solver.Value(continuity_tail_penalty)
+    # A hint is not a quality guarantee. Keep the already legal incumbent in
+    # the final search slice so a timed multi-worker solve cannot replace it
+    # with a lexicographically worse schedule.
+    model.Add(continuity_tail_penalty <= incumbent_penalty)
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max(
@@ -799,14 +933,22 @@ def optimize_game(
     solver.parameters.random_seed = 42
     final_status = solver.Solve(model)
 
+    final_candidate_accepted = False
     if final_status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        solution_solver = solver
-        solution_status = final_status
-    elif final_status == cp_model.INFEASIBLE:
-        raise LineupError(
-            "No legal schedule can satisfy the derived position eligibility "
-            "and league rules. Try adding preferences or changing availability."
+        candidate_continuity = _continuity_vector_from_solver(
+            solver,
+            one_inning_stints,
+            excess_position_counts,
+            two_inning_stints,
+            distinct_position_counts,
+            state_transitions,
         )
+        if _candidate_is_no_worse(
+            final_status, candidate_continuity, incumbent_continuity
+        ):
+            solution_solver = solver
+            solution_status = final_status
+            final_candidate_accepted = True
 
     solved_assignments = []
     positions_by_player: Dict[str, set[str]] = {
@@ -848,6 +990,8 @@ def optimize_game(
         and fallback_proven
         and one_inning_proven
         and excess_proven
+        and two_inning_proven
+        and final_candidate_accepted
         and final_status == cp_model.OPTIMAL
     )
 

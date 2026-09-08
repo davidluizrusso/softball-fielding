@@ -233,7 +233,6 @@ def test_short_stint_fallback_objective_looks_ahead_to_excess(monkeypatch):
                 for name in objective_names
                 if name.startswith("excess_positions_")
             }
-
             if (
                 not skipped_ideal_stint_probe
                 and excess_names

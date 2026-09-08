@@ -72,6 +72,17 @@ as a CSV download. Explicit positions are preferred and hierarchy-derived
 fallback assignments are minimized. A live phase indicator and tiny dancing
 coach remain visible while the solver works.
 
+The shared interactive solve budget is five seconds. A timed solve may remain
+`FEASIBLE`, but a later continuity phase cannot replace an already legal
+incumbent with a lexicographically worse lineup. Reproduce the published HFTB
+latency and quality contract outside the ordinary test suite with:
+
+```bash
+.venv/bin/python scripts/benchmark_hftb.py \
+  --processes 4 --runs-per-process 5 --budget 5 \
+  --output benchmarks/hftb-5s-reference.json
+```
+
 See [SPEC.md](SPEC.md) for the lineup rules and optimization priorities.
 
 ## Documentation

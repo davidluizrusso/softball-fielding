@@ -376,11 +376,11 @@ does not sacrifice an avoidable extra field position merely to lengthen a run.
 The model is implemented with the OR-Tools CP-SAT solver, which supports
 Boolean and integer constraint models and distinguishes statuses including
 \emph{OPTIMAL}, \emph{FEASIBLE}, and \emph{INFEASIBLE} \cite{ortoolscpsat}.
-The interactive default is a nominal ten-second multi-phase solve target measured
+The interactive default is a nominal five-second multi-phase solve target measured
 only after model construction. It is not a hard end-to-end wall-clock bound:
 model-building time, Python and Streamlit overhead, CP-SAT time-limit behavior,
 and the implementation's minimum per-phase and subphase allocations of
-0.05--0.1 seconds can make observed elapsed time exceed ten seconds. The implementation uses the
+0.05--0.1 seconds can make observed elapsed time exceed five seconds. The implementation uses the
 following nominally bounded phases:
 \begin{enumerate}
     \item \textbf{Arithmetic fairness certificate.} Add
@@ -408,6 +408,9 @@ following nominally bounded phases:
     unproved incumbent becomes a non-worsening upper bound.
     \item \textbf{Continuity phase.} Minimize $J_C$ for the remaining nominal
     phase budget, using prior assignments as solution hints where applicable.
+    Because a hint is not a quality guarantee, constrain $J_C$ to be no larger
+    than the incumbent value and accept a timed candidate only when its
+    $(o_1,e,o_2,v,q)$ vector is lexicographically no worse than that incumbent.
 \end{enumerate}
 
 Each accepted phase returns a legal assignment. Higher-priority values are
@@ -660,8 +663,8 @@ roster. Team Red loads the roster in \code{team\_red\_roster.csv} under locked
 Open rules. The existing Here For The Beer deployment remains available at
 \url{https://here-for-the-beer.streamlit.app/} and retains its Co-ed defaults.
 
-The implementation, normative specification, test suite, and fairness
-benchmark utility are maintained in the public repository at
+The implementation, normative specification, test suite, and benchmark
+utilities are maintained in the public repository at
 \url{https://github.com/davidluizrusso/softball-fielding}. Streamlit Community
 Cloud deploys an application from a GitHub repository and entrypoint and
 provides a shareable \code{streamlit.app} URL \cite{streamlitdeploy}. Python
@@ -672,9 +675,13 @@ The command-line verification entry points are:
 \begin{itemize}
     \item \code{python -m pytest} for model and Streamlit state tests;
     \item \code{npm run test:browser} for mobile-touch and desktop-mouse
-    Playwright workflows; and
+    Playwright workflows;
     \item \code{python scripts/benchmark\_fairness.py --budgets 1 2 3}
-    for repeated fairness-phase stress trials at selected roster sizes.
+    for repeated fairness-phase stress trials at selected roster sizes; and
+    \item \code{python scripts/benchmark\_hftb.py}\newline
+    \code{--processes 4 --runs-per-process 5 --budget 5}\newline
+    \code{--output benchmarks/hftb-5s-reference.json} for the opt-in 20-run HFTB latency,
+    phase-timing, and lexicographic-quality contract across fresh processes.
 \end{itemize}
 
 \begingroup
