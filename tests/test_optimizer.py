@@ -12,10 +12,26 @@ from softball_fielding import (
     optimize_game,
 )
 from softball_fielding.models import INFIELD, OUTFIELD, POSITIONS
+from softball_fielding.optimizer import _eligible_positions
 
 
 def player(name, gender, *preferences):
     return Player(name, gender, frozenset(preferences))
+
+
+def test_eligible_positions_follow_canonical_lineup_order():
+    candidate = player("Order Guard", "Woman", "RF", "P", "SS")
+
+    assert _eligible_positions(candidate, POSITIONS) == ("P", "SS", "RF")
+
+
+def test_reduced_lineup_orders_rf_substitution_as_rc():
+    candidate = player("Reduced Order Guard", "Woman", "RF", "P", "SS")
+    reduced_positions = tuple(
+        position for position in POSITIONS if position not in {"C", "RF"}
+    )
+
+    assert _eligible_positions(candidate, reduced_positions) == ("P", "SS", "RC")
 
 
 def state_sequence(result, player_name):

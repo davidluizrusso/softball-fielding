@@ -88,11 +88,13 @@ def _lineup_rules(
 
 def _eligible_positions(
     player: Player, active_positions: Sequence[str]
-) -> frozenset[str]:
+) -> Tuple[str, ...]:
     preferences = set(player.preferences)
     if "RF" not in active_positions and "RF" in preferences:
         preferences.add("RC")
-    return frozenset(preferences.intersection(active_positions))
+    return tuple(
+        position for position in active_positions if position in preferences
+    )
 
 
 def _validate_players(players: Sequence[Player]) -> None:
@@ -111,7 +113,7 @@ def _validate_players(players: Sequence[Player]) -> None:
 def _preflight_preferences(
     players: Sequence[Player],
     active_positions: Sequence[str],
-    eligibility: Dict[int, frozenset[str]],
+    eligibility: Dict[int, Tuple[str, ...]],
     profile: LeagueRules,
 ) -> None:
     uncovered = [
@@ -130,11 +132,13 @@ def _preflight_preferences(
         return
 
     women_infield = any(
-        player.is_woman and eligibility[index].intersection(INFIELD)
+        player.is_woman
+        and any(position in INFIELD for position in eligibility[index])
         for index, player in enumerate(players)
     )
     women_outfield = any(
-        player.is_woman and eligibility[index].intersection(OUTFIELD)
+        player.is_woman
+        and any(position in OUTFIELD for position in eligibility[index])
         for index, player in enumerate(players)
     )
     missing_groups = []
@@ -217,13 +221,15 @@ def optimize_game(
                 assignments[(inning, player_index, position)]
                 for player_index, player in enumerate(player_list)
                 if player.is_woman
-                for position in eligibility[player_index].intersection(INFIELD)
+                for position in eligibility[player_index]
+                if position in INFIELD
             ]
             woman_outfield_assignments = [
                 assignments[(inning, player_index, position)]
                 for player_index, player in enumerate(player_list)
                 if player.is_woman
-                for position in eligibility[player_index].intersection(OUTFIELD)
+                for position in eligibility[player_index]
+                if position in OUTFIELD
             ]
             model.Add(sum(woman_infield_assignments) >= 1)
             model.Add(sum(woman_outfield_assignments) >= 1)
