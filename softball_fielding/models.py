@@ -82,12 +82,14 @@ class Player:
             "m": "Man",
             "man": "Man",
             "male": "Man",
+            "unspecified": "Unspecified",
         }
         if not normalized_name:
             raise ValueError("Player names cannot be blank.")
         if normalized_gender not in gender_aliases:
             raise ValueError(
-                f"Gender for {normalized_name} must be Woman or Man."
+                f"Gender for {normalized_name} must be Woman, Man, or "
+                "Unspecified."
             )
 
         normalized_preferences = frozenset(

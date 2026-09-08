@@ -16,6 +16,7 @@ from softball_fielding.models import (
         ("female", "Woman", True),
         ("M", "Man", False),
         ("male", "Man", False),
+        ("Unspecified", "Unspecified", False),
     ],
 )
 def test_player_normalizes_supported_gender_aliases(gender, normalized, is_woman):
@@ -31,7 +32,12 @@ def test_player_normalizes_supported_gender_aliases(gender, normalized, is_woman
     ("name", "gender", "preferences", "message"),
     [
         (" ", "Woman", frozenset({"P"}), "names cannot be blank"),
-        ("Casey", "unknown", frozenset({"P"}), "must be Woman or Man"),
+        (
+            "Casey",
+            "unknown",
+            frozenset({"P"}),
+            "must be Woman, Man, or Unspecified",
+        ),
         ("Casey", "Woman", frozenset(), "at least one positional preference"),
         ("Casey", "Woman", frozenset({"DH"}), "Unknown position.*DH"),
     ],

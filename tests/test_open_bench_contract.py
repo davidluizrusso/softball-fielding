@@ -5,6 +5,24 @@ import pytest
 
 from softball_fielding import LineupError, OPEN_RULES, Player, optimize_game
 from softball_fielding.models import INNINGS, POSITIONS
+from softball_fielding.roster_templates import team_red_roster
+
+
+TEAM_RED_PREFERENCES = {
+    "David R": ("2B", "RC"),
+    "Justin": ("1B", "RC"),
+    "Andrew": ("C", "2B", "RF"),
+    "Kevin": ("2B", "LC"),
+    "David": ("RF",),
+    "Dung": ("P",),
+    "Heather": ("LF", "LC"),
+    "Ryan": ("1B", "3B"),
+    "Tristan": ("C", "3B"),
+    "Brad": ("C", "LF"),
+    "AP": ("SS", "LF"),
+    "Chris": ("C", "2B", "RF"),
+    "Marty": ("SS", "LC"),
+}
 
 
 def player(name, *preferences):
@@ -64,6 +82,98 @@ def assert_open_assignment_invariants(result, players):
         )
         for candidate in players
     }
+
+
+def test_team_red_template_matches_the_approved_public_roster():
+    roster = team_red_roster()
+
+    assert [record["name"] for record in roster] == list(TEAM_RED_PREFERENCES)
+    assert len({record["name"].casefold() for record in roster}) == len(roster)
+    assert all(record["available"] for record in roster)
+    assert {record["gender"] for record in roster} == {"Unspecified"}
+    assert {
+        record["name"]: tuple(
+            position
+            for position in POSITIONS
+            if position in record["preferences"]
+        )
+        for record in roster
+    } == TEAM_RED_PREFERENCES
+    assert {
+        position
+        for record in roster
+        for position in record["preferences"]
+    } == set(POSITIONS)
+
+
+def test_team_red_open_schedule_is_fair_and_minimizes_state_switches():
+    roster = team_red_roster()
+    players = [
+        Player(
+            record["name"],
+            record["gender"],
+            frozenset(record["preferences"]),
+        )
+        for record in roster
+    ]
+
+    result = optimize_game(players, profile=OPEN_RULES)
+
+    assert result.solver_status == "OPTIMAL"
+    assert result.active_positions == POSITIONS
+    assert_open_assignment_invariants(result, players)
+    assert Counter(result.player_innings.values()) == Counter({5: 9, 6: 3, 7: 1})
+    assert result.player_innings["Dung"] == INNINGS
+    assert all(inning["P"] == "Dung" for inning in result.assignments)
+    assert all(len(positions) <= 2 for positions in result.player_positions.values())
+
+    total_transitions = 0
+    one_inning_runs = []
+    two_inning_runs = 0
+    for candidate in players:
+        states = player_states(result, candidate.name)
+        state_runs = runs(states)
+        total_transitions += sum(
+            first != second for first, second in zip(states, states[1:])
+        )
+        one_inning_runs.extend(
+            (candidate.name, state)
+            for state, length in state_runs
+            if length == 1
+        )
+        two_inning_runs += sum(length == 2 for _state, length in state_runs)
+        assert len(state_runs) == len(set(states))
+
+        bench_innings = INNINGS - result.player_innings[candidate.name]
+        bench_runs = [
+            length for state, length in state_runs if state == "Bench"
+        ]
+        assert bench_runs == ([bench_innings] if bench_innings else [])
+        assert not any(
+            state != "Bench" and length == 1
+            for state, length in state_runs
+        )
+
+    assert len(one_inning_runs) == 3
+    assert {state for _name, state in one_inning_runs} == {"Bench"}
+    assert two_inning_runs == 15
+    assert total_transitions == 18
+    assert sum(len(positions) for positions in result.player_positions.values()) == 19
+
+
+def test_team_red_requires_its_only_pitcher_to_be_available():
+    players = [
+        Player(
+            record["name"],
+            record["gender"],
+            frozenset(record["preferences"]),
+        )
+        for record in team_red_roster()
+        if record["name"] != "Dung"
+    ]
+
+    with pytest.raises(LineupError, match=r"required position\(s\): P"):
+        optimize_game(players, profile=OPEN_RULES)
 
 
 def test_open_seven_player_roster_fails_without_a_gender_shortage():
