@@ -590,7 +590,7 @@ if IS_NEUTRAL_DEPLOYMENT and "active_setup" not in st.session_state:
         format_func=lambda key: SETUP_LABELS[key],
         captions=[
             "Current roster · Co-ed rules",
-            "Approved roster · Open rules",
+            "Published roster · Open rules",
             "No players · Choose your league rules",
         ],
         index=None,
