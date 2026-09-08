@@ -41,7 +41,11 @@ npm run test:browser
 
 1. Put this directory in its own GitHub repository.
 2. In Streamlit Community Cloud, create an app from the repository.
-3. Choose `app.py` as the entrypoint and deploy.
+3. Use `app.py` for the existing deployment. To create a second deployment
+   from the same branch without changing the existing app, use
+   `neutral_app.py`; it executes the canonical `app.py` implementation without
+   duplicating application logic.
+4. Deploy the selected entrypoint.
 
 No database or secrets are required. Each visitor's roster stays in their own
 Streamlit session.

@@ -15,6 +15,7 @@ from softball_fielding.models import (
 )
 
 APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
+NEUTRAL_APP_PATH = Path(__file__).resolve().parents[1] / "neutral_app.py"
 
 
 def fake_result(players, *, profile=COED_RULES):
@@ -75,6 +76,32 @@ def set_available_player_ids(app, player_ids):
             record["id"] in selected
         )
     app.run(timeout=20)
+
+
+def test_neutral_deployment_entrypoint_runs_canonical_app(monkeypatch, tmp_path):
+    optimizer = Mock(side_effect=fake_result)
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    monkeypatch.chdir(tmp_path)
+
+    app = AppTest.from_file(NEUTRAL_APP_PATH).run(timeout=20)
+
+    assert not app.exception
+    assert app.title[0].value == "🥎 Softball Fielding Optimizer"
+    profile = element_with_key(app.selectbox, "league-profile")
+    assert profile.label == "League rules"
+    assert profile.value == "coed"
+    assert profile.options == [
+        "Co-ed",
+        "Open (no gender fielding minimums)",
+    ]
+    assert len(app.session_state["roster"]) == 15
+
+    profile.set_value("open").run(timeout=20)
+
+    assert not app.exception
+    assert app.title[0].value == "🥎 Softball Fielding Optimizer"
+    assert element_with_key(app.selectbox, "league-profile").value == "open"
+    assert len(app.session_state["roster"]) == 15
 
 
 def test_app_loads_csv_defaults_and_optimizes(monkeypatch):
