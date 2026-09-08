@@ -83,6 +83,10 @@ latency and quality contract outside the ordinary test suite with:
   --output benchmarks/hftb-5s-reference.json
 ```
 
+The checked-in [reference artifact](benchmarks/hftb-5s-reference.json) records
+all 20 qualifying runs and their environment, phase timing, status, and quality
+vectors.
+
 See [SPEC.md](SPEC.md) for the lineup rules and optimization priorities.
 
 ## Documentation

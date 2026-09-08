@@ -394,11 +394,11 @@ following nominally bounded phases:
     minimize $f$, and fix the exact fallback incumbent before any continuity
     phase. If optimality is not proved, the incumbent is still frozen rather
     than silently relaxed.
-    \item \textbf{One-inning phase.} Test the ideal lower bound in which the
+    \item \textbf{One-inning phase.} For at most 0.25 seconds, test the ideal lower bound in which the
     only single-inning field run is forced by $t_p=1$ and the only single-
     inning Bench run is forced by $t_p=6$. Within this hard slice, minimize
     $e$ as look-ahead to the next tier. If the ideal slice is not found,
-    minimize $o_1(E^{UB}+1)+e$, where $E^{UB}$ bounds total excess positions,
+    minimize $o_1(E^{UB}+1)+e$ for up to 2.5 seconds, where $E^{UB}$ bounds total excess positions,
     and preserve the one-inning incumbent. The coefficient keeps every unit
     of $o_1$ strictly more important than all possible changes in $e$.
     \item \textbf{Two-position phase.} If look-ahead proves the value of $e$
@@ -406,11 +406,17 @@ following nominally bounded phases:
     Otherwise, first test the $e=0$ slice inside the existing phase budget,
     then minimize $e$ with the unspent remainder. A proved value is fixed; an
     unproved incumbent becomes a non-worsening upper bound.
-    \item \textbf{Continuity phase.} Minimize $J_C$ for the remaining nominal
-    phase budget, using prior assignments as solution hints where applicable.
-    Because a hint is not a quality guarantee, constrain $J_C$ to be no larger
-    than the incumbent value and accept a timed candidate only when its
-    $(o_1,e,o_2,v,q)$ vector is lexicographically no worse than that incumbent.
+    \item \textbf{Two-inning phase.} With the secured $o_1$ and $e$ ceilings,
+    minimize $o_2c_2+vc_v+q$ in two concurrent four-worker searches sharing
+    the existing eight-worker computational envelope. One search is an
+    ordinary proof-capable CP-SAT run; the second is a hint-seeded large-
+    neighborhood search with a different seed. Retain the lexicographically
+    better legal candidate and impose its non-worsening $o_2$ ceiling.
+    \item \textbf{Tail-continuity phase.} Use the remaining nominal budget to
+    minimize $vc_v+q$. Because a hint is not a quality guarantee, constrain
+    this tail objective to be no larger than the incumbent value and accept a
+    timed candidate only when its full $(o_1,e,o_2,v,q)$ vector is
+    lexicographically no worse than that incumbent.
 \end{enumerate}
 
 Each accepted phase returns a legal assignment. Higher-priority values are
@@ -419,6 +425,15 @@ constrained before lower-priority search begins. A final status of
 excess positions, and the final continuity objective are all proven. Any legal
 incumbent lacking one of those proofs is truthfully labeled \emph{FEASIBLE}.
 The latter label concerns proof of objective optimality, not legality.
+
+On the recorded macOS reference environment at commit \code{bf0f6b2}, twenty measured HFTB solves
+were distributed across four fresh Python processes after one excluded warm-up
+per process. All twenty preserved the proved fairness/preference prefix
+$(4,210,0)$ and met the continuity floor $(5,0,9,20,21)$ lexicographically.
+Seventeen returned $(5,0,9,19,20)$ and three returned $(5,0,9,20,20)$. Solver
+latency had p95 5.056 seconds and maximum 5.057 seconds; the fairness/fallback
+prefix had p95 0.127 seconds and maximum 0.132 seconds. Every result remained
+truthfully \emph{FEASIBLE}.
 
 The web interface reports the active phase while a solve is in progress and
 shows a small animated stick figure. This deliberately low-technology cue

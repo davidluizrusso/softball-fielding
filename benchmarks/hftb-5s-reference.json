@@ -1,0 +1,1005 @@
+{
+  "environment": {
+    "commit": "bf0f6b27e64cc10f1a760858c3ddfd33ddfce791",
+    "os": "macOS-26.6.2-arm64-arm-64bit",
+    "cpu": "arm",
+    "python": "3.9.6",
+    "ortools": "9.15.6755",
+    "worker_count": 8,
+    "nominal_budget_seconds": 5.0,
+    "fresh_processes": 4,
+    "warmups_excluded": 4,
+    "qualifying_runs": 20
+  },
+  "targets": {
+    "fairness_fallback_prefix": [
+      4,
+      210,
+      0
+    ],
+    "continuity_floor": [
+      5,
+      0,
+      9,
+      20,
+      21
+    ],
+    "solver_p95_seconds": 5.5,
+    "solver_max_seconds": 6.0,
+    "fairness_fallback_p95_seconds": 0.25,
+    "fairness_fallback_max_seconds": 0.75
+  },
+  "summary": {
+    "solver_p95_seconds": 5.056416,
+    "solver_max_seconds": 5.056806,
+    "fairness_fallback_p95_seconds": 0.127235,
+    "fairness_fallback_max_seconds": 0.131764,
+    "status_distribution": {
+      "FEASIBLE": 20
+    },
+    "all_prefix_pass": true,
+    "all_quality_pass": true
+  },
+  "runs": [
+    {
+      "elapsed_seconds": 5.024026,
+      "fairness_fallback_seconds": 0.107183,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.01937366600000079
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.07175337500000012
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.07359312500000037
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.10718308300000068
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.868648083
+        }
+      ],
+      "process_index": 1,
+      "run_index": 1
+    },
+    {
+      "elapsed_seconds": 5.025198,
+      "fairness_fallback_seconds": 0.11922,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.020471000000000572
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.07950854099999916
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.08139679099999952
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.11921979099999902
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.8839057500000003
+        }
+      ],
+      "process_index": 1,
+      "run_index": 2
+    },
+    {
+      "elapsed_seconds": 5.02629,
+      "fairness_fallback_seconds": 0.117985,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.021441125000000838
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.0778175000000001
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.07988962499999985
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.11798545899999979
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.881987792000002
+        }
+      ],
+      "process_index": 1,
+      "run_index": 3
+    },
+    {
+      "elapsed_seconds": 5.056416,
+      "fairness_fallback_seconds": 0.11878,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.02127612499999998
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.07470024999999936
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.07672145799999797
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.11878016699999705
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.8811276249999977
+        }
+      ],
+      "process_index": 1,
+      "run_index": 4
+    },
+    {
+      "elapsed_seconds": 5.036105,
+      "fairness_fallback_seconds": 0.11837,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.020612332999998983
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.07789125000000041
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.07992516599999888
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.11836958299999978
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.878584457999999
+        }
+      ],
+      "process_index": 1,
+      "run_index": 5
+    },
+    {
+      "elapsed_seconds": 5.025748,
+      "fairness_fallback_seconds": 0.125035,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.02112504199999954
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.08446370899999955
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.08643774999999998
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.12503466699999954
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.8981259590000006
+        }
+      ],
+      "process_index": 2,
+      "run_index": 1
+    },
+    {
+      "elapsed_seconds": 5.056806,
+      "fairness_fallback_seconds": 0.12292,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.021609583000000043
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.08042495800000005
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.08233120799999938
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.1229196659999996
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.8912576659999996
+        }
+      ],
+      "process_index": 2,
+      "run_index": 2
+    },
+    {
+      "elapsed_seconds": 5.026586,
+      "fairness_fallback_seconds": 0.118686,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 20,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        20,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.02156795800000033
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.07874712499999958
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.08077325000000002
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.1186862909999995
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.881051083000001
+        }
+      ],
+      "process_index": 2,
+      "run_index": 3
+    },
+    {
+      "elapsed_seconds": 5.035294,
+      "fairness_fallback_seconds": 0.125032,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.02232391700000136
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.08331645800000231
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.0853845419999999
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.12503204200000084
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.963401749999999
+        }
+      ],
+      "process_index": 2,
+      "run_index": 4
+    },
+    {
+      "elapsed_seconds": 5.037148,
+      "fairness_fallback_seconds": 0.125906,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.022682332999998778
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.08110349999999755
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.08310124999999857
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.12590595799999704
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.990427624999999
+        }
+      ],
+      "process_index": 2,
+      "run_index": 5
+    },
+    {
+      "elapsed_seconds": 5.040776,
+      "fairness_fallback_seconds": 0.127235,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 20,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        20,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.022405292000000188
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.08536712499999943
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.08754279199999981
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.12723454200000006
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.9048348330000007
+        }
+      ],
+      "process_index": 3,
+      "run_index": 1
+    },
+    {
+      "elapsed_seconds": 5.034174,
+      "fairness_fallback_seconds": 0.121854,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.022382667000000467
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.07979645800000057
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.08202495799999987
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.12185383300000119
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.9218649580000005
+        }
+      ],
+      "process_index": 3,
+      "run_index": 2
+    },
+    {
+      "elapsed_seconds": 5.03892,
+      "fairness_fallback_seconds": 0.122092,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.02364191699999907
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.08128574999999927
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.08346295799999837
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.12209158299999956
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 3.0083574169999974
+        }
+      ],
+      "process_index": 3,
+      "run_index": 3
+    },
+    {
+      "elapsed_seconds": 5.027133,
+      "fairness_fallback_seconds": 0.121558,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.02225829200000007
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.08037654199999977
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.08246916699999929
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.12155808300000004
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.8913427919999997
+        }
+      ],
+      "process_index": 3,
+      "run_index": 4
+    },
+    {
+      "elapsed_seconds": 5.027627,
+      "fairness_fallback_seconds": 0.124237,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.02271437499999962
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.08336091700000026
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.08549245900000102
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.1242374169999998
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.906194166999999
+        }
+      ],
+      "process_index": 3,
+      "run_index": 5
+    },
+    {
+      "elapsed_seconds": 5.027824,
+      "fairness_fallback_seconds": 0.125123,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.022960624999999624
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.0836444580000002
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.08568362499999971
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.12512258299999957
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.8895522500000004
+        }
+      ],
+      "process_index": 4,
+      "run_index": 1
+    },
+    {
+      "elapsed_seconds": 5.028504,
+      "fairness_fallback_seconds": 0.121889,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.023446458000000447
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.07888887500000052
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.08102624999999897
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.12188854199999888
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.8889850829999997
+        }
+      ],
+      "process_index": 4,
+      "run_index": 2
+    },
+    {
+      "elapsed_seconds": 5.029275,
+      "fairness_fallback_seconds": 0.124804,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.02425016599999985
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.0821649579999999
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.08436070800000017
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.12480379099999972
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.8889094579999988
+        }
+      ],
+      "process_index": 4,
+      "run_index": 3
+    },
+    {
+      "elapsed_seconds": 5.030054,
+      "fairness_fallback_seconds": 0.123876,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 19,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        19,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.024398250000000843
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.08247150000000047
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.08469704200000194
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.12387579199999976
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.8860782500000006
+        }
+      ],
+      "process_index": 4,
+      "run_index": 4
+    },
+    {
+      "elapsed_seconds": 5.031817,
+      "fairness_fallback_seconds": 0.131764,
+      "solver_status": "FEASIBLE",
+      "metrics": {
+        "playing_time_spread": 4,
+        "scaled_deviation": 210,
+        "fallback_innings": 0,
+        "one_inning_state_runs": 5,
+        "excess_field_positions": 0,
+        "two_inning_state_runs": 9,
+        "distinct_field_positions": 20,
+        "transitions": 20
+      },
+      "continuity_vector": [
+        5,
+        0,
+        9,
+        20,
+        20
+      ],
+      "prefix_pass": true,
+      "quality_pass": true,
+      "progress_events": [
+        {
+          "message": "Checking the fairest possible playing time\u2026",
+          "elapsed_seconds": 0.0266810839999998
+        },
+        {
+          "message": "Fairest playing-time balance proven. Checking preferred positions\u2026",
+          "elapsed_seconds": 0.08929150000000163
+        },
+        {
+          "message": "Preferring selected positions over fallback eligibility\u2026",
+          "elapsed_seconds": 0.09147125000000145
+        },
+        {
+          "message": "Keeping field and Bench assignments in longer blocks\u2026",
+          "elapsed_seconds": 0.13176429199999973
+        },
+        {
+          "message": "Reducing position changes\u2026",
+          "elapsed_seconds": 2.9057572920000005
+        }
+      ],
+      "process_index": 4,
+      "run_index": 5
+    }
+  ]
+}
