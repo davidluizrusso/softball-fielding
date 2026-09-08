@@ -22,3 +22,8 @@ __all__ = [
     "lineup_shortages",
     "optimize_game",
 ]
+
+# This completion marker must remain after every package import above. The
+# Streamlit bootstrap uses it to distinguish a fully rebound package graph
+# from a worker that retained pre-deploy modules.
+RUNTIME_PACKAGE_VERSION = 2

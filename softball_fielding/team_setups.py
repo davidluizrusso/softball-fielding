@@ -17,7 +17,7 @@ def _selected(value: object) -> bool:
 
 
 def team_red_roster() -> List[Dict[str, object]]:
-    """Load the approved public Team Red roster without inventing gender data."""
+    """Load the published Team Red roster without inventing gender data."""
 
     with TEAM_RED_ROSTER_CSV.open(encoding="utf-8-sig", newline="") as source:
         reader = csv.DictReader(source)

@@ -9,6 +9,14 @@ from typing import Dict, List, Optional
 import pandas as pd
 import streamlit as st
 
+from softball_fielding.runtime_bootstrap import ensure_current_package
+
+# Community Cloud can rerun an updated app.py inside a worker whose imported
+# package modules still contain pre-deploy code. This version-gated operation
+# is a no-op for a coherent process and lock-serializes stale-graph repair.
+REQUIRED_PACKAGE_VERSION = 2
+ensure_current_package(REQUIRED_PACKAGE_VERSION)
+
 from softball_fielding import (
     COED_RULES,
     LEAGUE_RULES,
@@ -1120,7 +1128,7 @@ if st.button(
 if st.session_state.confirm_reset:
     reset_descriptions = {
         HERE_FOR_THE_BEER_SETUP: "the Here For The Beer CSV defaults",
-        TEAM_RED_SETUP: "the approved Team Red defaults",
+        TEAM_RED_SETUP: "the published Team Red defaults",
         BLANK_SETUP: "a blank roster",
     }
     if IS_NEUTRAL_DEPLOYMENT:

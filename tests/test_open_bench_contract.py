@@ -83,7 +83,7 @@ def assert_open_assignment_invariants(result, players):
     }
 
 
-def test_team_red_template_matches_the_approved_public_roster():
+def test_team_red_template_matches_the_published_public_roster():
     roster = team_red_roster()
 
     assert [record["name"] for record in roster] == list(TEAM_RED_PREFERENCES)
