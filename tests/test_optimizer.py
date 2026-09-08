@@ -898,7 +898,9 @@ def test_ten_player_lineup_is_legal_and_balanced():
         player(f"W{index}", "Woman", *POSITIONS) for index in range(4)
     ] + [player(f"M{index}", "Man", *POSITIONS) for index in range(7)]
 
-    result = optimize_game(players)
+    # The two-position assertion is a soft-quality outcome, not mere legality.
+    # Give slower CI hosts enough search budget to evaluate that later tier.
+    result = optimize_game(players, max_solve_seconds=15.0)
 
     assert result.active_positions == POSITIONS
     assert_legal(result, players, minimum_women=4)
