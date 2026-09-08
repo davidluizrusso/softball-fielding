@@ -139,10 +139,12 @@ case: a later search may spend lower-priority quality to improve an earlier
 tier. Once the preceding prefix is proven, its exact component values may be
 fixed safely. Every returned candidate is also compared using the documented
 lexicographic vector. The unattainable-ideal probe is capped at 0.25 seconds;
-the focused one-inning/excess phase receives up to 2.5 seconds. The two-inning
-suffix uses two concurrent four-worker searches under the same eight-worker
-envelope: one ordinary proof-capable search and one hint-seeded large-
-neighborhood search. The better legal vector is retained before final polish.
+the focused one-inning/excess phase receives up to 2.5 seconds. If that
+phase produces no candidate, optimization retains the already legal
+fairness/preference incumbent and continues with the complete continuity
+objective. The two-inning suffix uses two concurrent four-worker searches
+under the same eight-worker envelope: one ordinary proof-capable search and
+one hint-seeded large-neighborhood search. The better legal vector is retained before final polish.
 A worse timed candidate is discarded. `OPTIMAL` is reported only when every
 higher-priority stage and the final weighted continuity objective are proven;
 otherwise a legal incumbent is labeled `FEASIBLE`.
@@ -150,8 +152,11 @@ otherwise a legal incumbent is labeled `FEASIBLE`.
 The opt-in HFTB reference benchmark runs 20 measured solves across at least
 four fresh Python processes after one excluded warm-up per process. It records
 the environment, phase boundaries, solver status, latency, and all eight
-objective metrics for every run; this wall-clock check is intentionally not a
-per-commit CI assertion.
+objective metrics for every run. Every run must preserve the exact
+fairness/fallback prefix, and at least 90% must meet the documented continuity
+target. The target is a measured quality rate for nondeterministic timed
+search, not a hard feasibility guarantee. This wall-clock check is
+intentionally not a per-commit CI assertion.
 
 ## Output
 

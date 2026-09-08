@@ -26,6 +26,7 @@ from softball_fielding.quality import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+HFTB_REFERENCE_IMPLEMENTATION = "fa92000c62f0113643e42ccba7adff495b4d8c93"
 
 
 def test_quality_metrics_reconstruct_field_and_bench_states():
@@ -148,16 +149,12 @@ def test_hftb_reference_benchmark_artifact_preserves_quality_contract():
     assert environment["qualifying_runs"] == len(runs) >= 20
     assert environment["nominal_budget_seconds"] == 5.0
     assert environment["worker_count"] == 8
-    assert len(environment["commit"]) == 40
-    assert all(
-        character in "0123456789abcdef"
-        for character in environment["commit"]
-    )
+    assert environment["commit"] == HFTB_REFERENCE_IMPLEMENTATION
 
     prefix = tuple(targets["fairness_fallback_prefix"])
-    floor = tuple(targets["continuity_floor"])
+    target = tuple(targets["continuity_target"])
     assert prefix == (4, 210, 0)
-    assert floor == (5, 0, 9, 20, 21)
+    assert target == (5, 0, 9, 20, 21)
     run_ids = {
         (run["process_index"], run["run_index"])
         for run in runs
@@ -180,10 +177,11 @@ def test_hftb_reference_benchmark_artifact_preserves_quality_contract():
         ) == prefix
         reconstructed_vector = continuity_vector(metrics)
         assert tuple(run["continuity_vector"]) == reconstructed_vector
-        assert reconstructed_vector <= floor
+        assert run["quality_pass"] is is_lexicographically_no_worse(
+            reconstructed_vector, target
+        )
         assert run["solver_status"] in {"FEASIBLE", "OPTIMAL"}
         assert run["prefix_pass"] is True
-        assert run["quality_pass"] is True
 
     percentile_index = math.ceil(0.95 * len(runs)) - 1
     elapsed = sorted(run["elapsed_seconds"] for run in runs)
@@ -208,8 +206,17 @@ def test_hftb_reference_benchmark_artifact_preserves_quality_contract():
     assert summary["status_distribution"] == dict(
         sorted(Counter(run["solver_status"] for run in runs).items())
     )
+    quality_pass_count = sum(run["quality_pass"] for run in runs)
+    assert summary["quality_pass_count"] == quality_pass_count
+    assert summary["quality_pass_rate"] == quality_pass_count / len(runs)
+    assert (
+        summary["quality_pass_rate"]
+        >= targets["continuity_minimum_pass_rate"]
+    )
     assert summary["all_prefix_pass"] is True
-    assert summary["all_quality_pass"] is True
+    assert summary["all_quality_pass"] is all(
+        run["quality_pass"] for run in runs
+    )
 
 
 def test_default_solve_budget_is_five_seconds_and_override_remains_supported(

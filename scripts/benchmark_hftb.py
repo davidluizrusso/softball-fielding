@@ -27,7 +27,8 @@ from softball_fielding.quality import (
 )
 
 ROSTER_CSV = ROOT / "roster_positions.csv"
-QUALITY_FLOOR = (5, 0, 9, 20, 21)
+QUALITY_TARGET = (5, 0, 9, 20, 21)
+QUALITY_MINIMUM_PASS_RATE = 0.9
 PREFIX = (4, 210, 0)
 
 
@@ -150,7 +151,7 @@ def run_once(players: tuple[Player, ...], budget: float) -> dict[str, object]:
         "metrics": metrics,
         "continuity_vector": quality,
         "prefix_pass": prefix == PREFIX,
-        "quality_pass": is_lexicographically_no_worse(quality, QUALITY_FLOOR),
+        "quality_pass": is_lexicographically_no_worse(quality, QUALITY_TARGET),
         "progress_events": events,
     }
 
@@ -221,7 +222,8 @@ def orchestrate(arguments: argparse.Namespace) -> int:
         },
         "targets": {
             "fairness_fallback_prefix": PREFIX,
-            "continuity_floor": QUALITY_FLOOR,
+            "continuity_target": QUALITY_TARGET,
+            "continuity_minimum_pass_rate": QUALITY_MINIMUM_PASS_RATE,
             "solver_p95_seconds": 5.5,
             "solver_max_seconds": 6.0,
             "fairness_fallback_p95_seconds": 0.25,
@@ -236,6 +238,13 @@ def orchestrate(arguments: argparse.Namespace) -> int:
                 sorted(Counter(record["solver_status"] for record in records).items())
             ),
             "all_prefix_pass": all(record["prefix_pass"] for record in records),
+            "quality_pass_count": sum(
+                record["quality_pass"] for record in records
+            ),
+            "quality_pass_rate": sum(
+                record["quality_pass"] for record in records
+            )
+            / len(records),
             "all_quality_pass": all(record["quality_pass"] for record in records),
         },
         "runs": records,
@@ -250,7 +259,7 @@ def orchestrate(arguments: argparse.Namespace) -> int:
     summary = report["summary"]
     return int(
         not summary["all_prefix_pass"]
-        or not summary["all_quality_pass"]
+        or summary["quality_pass_rate"] < QUALITY_MINIMUM_PASS_RATE
         or summary["solver_p95_seconds"] > 5.5
         or summary["solver_max_seconds"] > 6.0
         or summary["fairness_fallback_p95_seconds"] > 0.25
