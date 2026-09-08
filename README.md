@@ -69,8 +69,8 @@ Every successful solve displays one semantic seven-inning matrix. On narrow
 screens, the matrix scrolls horizontally inside its own keyboard-accessible
 region without widening the page. The complete lineup also remains available
 as a CSV download. Explicit positions are preferred and hierarchy-derived
-fallback assignments are minimized. A live phase indicator and tiny dancing
-coach remain visible while the solver works.
+fallback assignments are minimized. A live phase indicator and a small
+side-profile stick figure remain visible while the solver works.
 
 The shared interactive solve budget is five seconds. A timed solve may remain
 `FEASIBLE`, but a later continuity phase cannot replace an already legal
@@ -85,7 +85,9 @@ latency and quality contract outside the ordinary test suite with:
 
 The checked-in [reference artifact](benchmarks/hftb-5s-reference.json) records
 all 20 qualifying runs and their environment, phase timing, status, and quality
-vectors.
+vectors. Timed multi-worker search is nondeterministic: every reference run
+must preserve the fairness/preference prefix, while the continuity vector is a
+90%-minimum measured target rather than a hard feasibility guarantee.
 
 See [SPEC.md](SPEC.md) for the lineup rules and optimization priorities.
 

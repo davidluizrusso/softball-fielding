@@ -98,6 +98,25 @@ def semantic_lineup(app):
     return markup, headers, rows
 
 
+def rendered_markup_contains(app, fragment):
+    return any(fragment in str(markdown.value) for markdown in app.markdown)
+
+
+def test_optimization_indicator_source_is_status_first_and_neutral():
+    source = APP_PATH.read_text(encoding="utf-8")
+    readme = (APP_PATH.parent / "README.md").read_text(encoding="utf-8")
+
+    assert source.index('update_optimization_status("Optimizing…")') < source.index(
+        "optimization_dancer.markdown("
+    )
+    assert 'role="status"' in source
+    assert 'aria-live="polite" aria-atomic="true"' in source
+    assert 'data-motion="backward-glide" data-facing="right"' in source
+    assert "@media (prefers-reduced-motion: reduce)" in source
+    assert "coach" not in source.casefold()
+    assert "coach" not in readme.casefold()
+
+
 def set_available_player_ids(app, player_ids):
     selected = set(player_ids)
     for record in app.session_state["roster"]:
@@ -431,6 +450,8 @@ def test_app_loads_csv_defaults_and_optimizes(monkeypatch):
     assert sum(candidate.is_woman for candidate in optimized_players) == 5
     assert optimizer.call_args.kwargs["profile"] == COED_RULES
     assert callable(optimizer.call_args.kwargs["progress_callback"])
+    assert not rendered_markup_contains(app, 'class="optimization-status"')
+    assert not rendered_markup_contains(app, 'class="optimization-dancer"')
     assert any(
         subheader.value == "Optimized lineup" for subheader in app.subheader
     )
@@ -489,6 +510,8 @@ def test_app_surfaces_optimizer_errors_without_showing_a_stale_lineup(monkeypatc
     optimizer.assert_called_once()
     assert not app.exception
     assert [error.value for error in app.error] == [message]
+    assert not rendered_markup_contains(app, 'class="optimization-status"')
+    assert not rendered_markup_contains(app, 'class="optimization-dancer"')
     assert not any(
         subheader.value == "Optimized lineup" for subheader in app.subheader
     )
@@ -505,6 +528,21 @@ def test_app_surfaces_optimizer_errors_without_showing_a_stale_lineup(monkeypatc
     assert any(
         info.value == "Inputs changed — optimize again." for info in app.info
     )
+
+
+def test_unexpected_optimizer_error_also_clears_animation(monkeypatch):
+    optimizer = Mock(side_effect=RuntimeError("unexpected solver failure"))
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
+
+    next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    ).click().run(timeout=20)
+
+    optimizer.assert_called_once()
+    assert app.exception
+    assert not rendered_markup_contains(app, 'class="optimization-status"')
+    assert not rendered_markup_contains(app, 'class="optimization-dancer"')
 
 
 def test_add_edit_remove_and_reset_roster(monkeypatch):

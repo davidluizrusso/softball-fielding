@@ -979,52 +979,102 @@ optimize_clicked = st.button(
 )
 
 if optimize_clicked:
+    optimization_status = st.empty()
     optimization_dancer = st.empty()
+
+    def update_optimization_status(message: str) -> None:
+        optimization_status.markdown(
+            (
+                '<div class="optimization-status" role="status" '
+                'aria-live="polite" aria-atomic="true">'
+                f"{escape(message)}</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+
+    update_optimization_status("Optimizing…")
     optimization_dancer.markdown(
         """
         <style>
-        @keyframes softball-stick-figure-dance {
-            0% { transform: translateX(-0.35rem) rotate(-7deg); }
-            50% { transform: translateY(-0.3rem) rotate(7deg); }
-            100% { transform: translateX(0.35rem) rotate(-4deg); }
+        @keyframes softball-side-glide {
+            from { transform: translateX(0.8rem) rotate(-2deg); }
+            to { transform: translateX(-0.8rem) rotate(2deg); }
+        }
+        @keyframes softball-side-arm {
+            from { transform: rotate(-10deg); }
+            to { transform: rotate(13deg); }
+        }
+        @keyframes softball-side-leg {
+            from { transform: rotate(-8deg); }
+            to { transform: rotate(11deg); }
         }
         .optimization-dancer {
-            align-items: center;
-            display: flex;
-            gap: 0.8rem;
-            margin: 0.35rem 0 0.7rem;
+            height: 5.25rem;
+            margin: 0.15rem 0 0.7rem;
+            max-width: 100%;
+            overflow: hidden;
+            width: 8rem;
         }
         .optimization-dancer__figure {
-            animation: softball-stick-figure-dance 0.42s steps(2, jump-none)
-                infinite alternate;
-            display: inline-block;
-            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-            font-size: 1.1rem;
-            font-weight: 700;
-            line-height: 0.9;
-            text-align: center;
-            transform-origin: 50% 100%;
-            white-space: pre;
+            animation: softball-side-glide 0.9s ease-in-out infinite alternate;
+            color: currentColor;
+            display: block;
+            height: 5rem;
+            transform-origin: 50% 90%;
+            width: 5rem;
+        }
+        .optimization-dancer__arm {
+            animation: softball-side-arm 0.45s ease-in-out infinite alternate;
+            transform-box: fill-box;
+            transform-origin: 50% 0%;
+        }
+        .optimization-dancer__leg {
+            animation: softball-side-leg 0.45s ease-in-out infinite alternate;
+            transform-box: fill-box;
+            transform-origin: 50% 0%;
+        }
+        .optimization-dancer__arm--rear,
+        .optimization-dancer__leg--front {
+            animation-direction: alternate-reverse;
         }
         @media (prefers-reduced-motion: reduce) {
-            .optimization-dancer__figure { animation: none; }
+            .optimization-dancer__figure,
+            .optimization-dancer__arm,
+            .optimization-dancer__leg {
+                animation: none;
+                transform: none;
+            }
         }
         </style>
-        <div class="optimization-dancer" role="status"
-             aria-label="Optimization in progress">
-            <span class="optimization-dancer__figure" aria-hidden="true">\\o/<br> |<br>/ ╲</span>
-            <span>Tiny coach is dancing while the lineup cooks.</span>
+        <div class="optimization-dancer" aria-hidden="true"
+             data-motion="backward-glide" data-facing="right">
+            <svg class="optimization-dancer__figure" viewBox="0 0 80 80"
+                 aria-hidden="true" focusable="false">
+                <g fill="none" stroke="currentColor" stroke-linecap="round"
+                   stroke-linejoin="round" stroke-width="3.5">
+                    <circle cx="42" cy="14" r="9" />
+                    <path d="M50 11 L57 15 L50 18" />
+                    <circle cx="47" cy="12" r="0.9" fill="currentColor"
+                            stroke="none" />
+                    <path d="M41 23 L38 47" />
+                    <g class="optimization-dancer__arm optimization-dancer__arm--rear">
+                        <path d="M41 28 L27 39 L20 34" />
+                    </g>
+                    <g class="optimization-dancer__arm optimization-dancer__arm--front">
+                        <path d="M41 28 L53 38 L59 33" />
+                    </g>
+                    <g class="optimization-dancer__leg optimization-dancer__leg--rear">
+                        <path d="M38 47 L27 63 L18 64" />
+                    </g>
+                    <g class="optimization-dancer__leg optimization-dancer__leg--front">
+                        <path d="M38 47 L47 63 L59 63" />
+                    </g>
+                </g>
+            </svg>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    optimization_status = st.status(
-        "Preparing the optimization…", expanded=False
-    )
-
-    def update_optimization_status(message: str) -> None:
-        optimization_status.update(label=message, state="running")
-
     try:
         available_players = players_from_roster(roster)
         optimization_started = perf_counter()
@@ -1034,10 +1084,6 @@ if optimize_clicked:
             progress_callback=update_optimization_status,
         )
         optimization_seconds = perf_counter() - optimization_started
-        optimization_status.update(
-            label="Lineup optimization complete.", state="complete"
-        )
-        optimization_dancer.empty()
         st.session_state.result = result
         st.session_state.result_fingerprint = current_fingerprint
         st.session_state.last_attempt_fingerprint = current_fingerprint
@@ -1045,14 +1091,15 @@ if optimize_clicked:
         st.session_state.error = None
         st.session_state.inputs_changed = False
     except (LineupError, ValueError) as error:
-        optimization_status.update(
-            label="Lineup optimization stopped.", state="error"
-        )
-        optimization_dancer.empty()
         st.session_state.result = None
         st.session_state.error = str(error)
         st.session_state.last_attempt_fingerprint = current_fingerprint
         st.session_state.inputs_changed = False
+    except Exception:
+        raise
+    finally:
+        optimization_dancer.empty()
+        optimization_status.empty()
 
 if st.session_state.get("inputs_changed"):
     st.info("Inputs changed — optimize again.")

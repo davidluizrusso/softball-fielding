@@ -45,16 +45,46 @@ test("issues #1, #3, and #19 keep the complete game-day outcome visible and curr
   await expect(optimize).toBeEnabled();
   await activate(optimize, testInfo);
 
+  const status = page.locator('.optimization-status[role="status"]');
   const dancer = page.locator(".optimization-dancer");
   await expect(dancer).toBeVisible({ timeout: 10_000 });
-  await expect(dancer).toContainText("Tiny coach is dancing");
+  await expect(status).toHaveAttribute("aria-live", "polite");
+  await expect(status).toHaveAttribute("aria-atomic", "true");
+  await expect(status).toHaveText(/\S/);
+  await expect(dancer).toHaveAttribute("aria-hidden", "true");
+  await expect(dancer).toHaveAttribute("data-facing", "right");
+  await expect(dancer).toHaveAttribute("data-motion", "backward-glide");
+  await expect(dancer.locator("svg")).toHaveAttribute("focusable", "false");
+  expect(await status.evaluate((statusElement, dancerElement) => Boolean(
+    statusElement.compareDocumentPosition(dancerElement)
+      & Node.DOCUMENT_POSITION_FOLLOWING
+  ), await dancer.elementHandle())).toBe(true);
+  const statusBox = await status.boundingBox();
+  const dancerBox = await dancer.boundingBox();
+  expect(dancerBox.y).toBeGreaterThanOrEqual(statusBox.y + statusBox.height);
   expect(await dancer.locator(".optimization-dancer__figure").evaluate(
     (figure) => getComputedStyle(figure).animationName,
-  )).toBe("softball-stick-figure-dance");
+  )).toBe("softball-side-glide");
+  expect(await dancer.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      height: style.height,
+      overflow: style.overflow,
+      width: style.width,
+    };
+  })).toEqual({ height: "84px", overflow: "hidden", width: "128px" });
+  const keyframes = await dancer.locator(".optimization-dancer__figure").evaluate(
+    (figure) => figure.getAnimations()[0].effect.getKeyframes(),
+  );
+  expect(keyframes).toHaveLength(2);
+  expect(keyframes.every(
+    (frame) => /matrix|translateX/.test(frame.transform),
+  )).toBe(true);
 
   const resultHeading = page.getByRole("heading", { name: "Optimized lineup" });
   await expect(resultHeading).toBeVisible({ timeout: 30_000 });
   await expect(dancer).toBeHidden();
+  await expect(status).toBeHidden();
   const detailsHeading = page.getByRole("heading", {
     name: "Player details & preferences",
   });
@@ -182,4 +212,42 @@ test("issues #1, #3, and #19 keep the complete game-day outcome visible and curr
   await activate(optimize, testInfo);
   await expect(resultHeading).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/Open \(no gender fielding minimums\) profile/)).toBeVisible();
+});
+
+test("issue #21 keeps the side-profile figure static for reduced motion", async ({ page }, testInfo) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await activate(
+    page.getByRole("button", { name: "Optimize seven innings" }),
+    testInfo,
+  );
+
+  const status = page.locator('.optimization-status[role="status"]');
+  const dancer = page.locator(".optimization-dancer");
+  await expect(dancer).toBeVisible({ timeout: 10_000 });
+  await expect(status).toBeVisible();
+  for (const animatedPart of await dancer.locator(
+    ".optimization-dancer__figure, .optimization-dancer__arm, .optimization-dancer__leg",
+  ).all()) {
+    expect(await animatedPart.evaluate(
+      (element) => getComputedStyle(element).animationName,
+    )).toBe("none");
+  }
+
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = "2";
+  });
+  expect(await page.evaluate(
+    () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+  )).toBe(true);
+  expect(await dancer.evaluate(
+    (element) => element.getBoundingClientRect().right <= window.innerWidth + 1,
+  )).toBe(true);
+
+  await expect(page.getByRole("heading", { name: "Optimized lineup" })).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(dancer).toBeHidden();
+  await expect(status).toBeHidden();
 });

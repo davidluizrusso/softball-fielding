@@ -14,7 +14,13 @@ from softball_fielding import (
     optimize_game,
 )
 from softball_fielding.models import INFIELD, INNINGS, OUTFIELD, POSITIONS
-from softball_fielding.optimizer import _eligible_positions, _fallback_positions
+from softball_fielding.optimizer import (
+    CONSISTENCY_PROGRESS,
+    FAIRNESS_PROGRESS,
+    STINT_PROGRESS,
+    _eligible_positions,
+    _fallback_positions,
+)
 
 
 def player(name, gender, *preferences):
@@ -340,6 +346,27 @@ def test_unknown_short_stint_search_retains_legal_preference_incumbent(
     assert_equal_share(result)
     assert sum(map(len, result.fallback_assignments)) == 0
     assert result.solver_status == "FEASIBLE"
+
+
+def test_progress_callback_preserves_exact_phase_order():
+    events = []
+    players = tuple(
+        player(position, "Man", position) for position in POSITIONS
+    )
+
+    optimize_game(
+        players,
+        profile=OPEN_RULES,
+        max_solve_seconds=0.5,
+        progress_callback=events.append,
+    )
+
+    assert events == [
+        FAIRNESS_PROGRESS,
+        "Fairest playing-time balance proven. Checking preferred positions…",
+        STINT_PROGRESS,
+        CONSISTENCY_PROGRESS,
+    ]
 
 
 def test_proven_short_stint_optimum_does_not_reimpose_infeasible_ideal_groups():
