@@ -274,6 +274,74 @@ def test_short_stint_fallback_objective_looks_ahead_to_excess(monkeypatch):
     assert inspected_weighted_lookahead
 
 
+def test_unknown_short_stint_search_retains_legal_preference_incumbent(
+    monkeypatch,
+):
+    real_solver = cp_model.CpSolver
+    forced_ideal_unknown = False
+    forced_weighted_unknown = False
+
+    class UnknownShortStintSolver:
+        def __init__(self):
+            self.delegate = real_solver()
+            self.parameters = self.delegate.parameters
+
+        def Solve(self, model):
+            nonlocal forced_ideal_unknown
+            nonlocal forced_weighted_unknown
+            objective_names = {
+                model.Proto().variables[index].name
+                for index in model.Proto().objective.vars
+            }
+            has_one_inning = any(
+                "_one_inning_" in name for name in objective_names
+            )
+            has_excess = any(
+                name.startswith("excess_positions_")
+                for name in objective_names
+            )
+            if has_excess and not has_one_inning and not forced_ideal_unknown:
+                forced_ideal_unknown = True
+                return cp_model.UNKNOWN
+            if (
+                forced_ideal_unknown
+                and has_one_inning
+                and has_excess
+                and not forced_weighted_unknown
+            ):
+                forced_weighted_unknown = True
+                return cp_model.UNKNOWN
+            return self.delegate.Solve(model)
+
+        def Value(self, variable):
+            return self.delegate.Value(variable)
+
+        def __getattr__(self, name):
+            return getattr(self.delegate, name)
+
+    monkeypatch.setattr(
+        optimizer_module.cp_model,
+        "CpSolver",
+        UnknownShortStintSolver,
+    )
+    players = tuple(
+        player(position, "Man", position) for position in POSITIONS
+    )
+
+    result = optimize_game(
+        players,
+        profile=OPEN_RULES,
+        max_solve_seconds=1.0,
+    )
+
+    assert forced_ideal_unknown
+    assert forced_weighted_unknown
+    assert_schedule_invariants(result, players, OPEN_RULES)
+    assert_equal_share(result)
+    assert sum(map(len, result.fallback_assignments)) == 0
+    assert result.solver_status == "FEASIBLE"
+
+
 def test_proven_short_stint_optimum_does_not_reimpose_infeasible_ideal_groups():
     players = [
         player("A", "Man", "P"),

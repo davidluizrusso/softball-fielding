@@ -746,10 +746,20 @@ def optimize_game(
         )
 
     if one_inning_status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        raise LineupError(
-            "The optimizer could not improve lineup continuity within the "
-            "time limit. Please try again."
+        # The exact fairness/preference incumbent is already a legal schedule.
+        # A short continuity slice that finds no replacement must not turn that
+        # incumbent into an application error. Keep it, mark this tier
+        # unproven, and let the later full-objective searches continue.
+        one_inning_solver = fallback_solver
+        one_inning_status = fallback_status
+        best_one_inning = sum(
+            one_inning_solver.Value(item) for item in one_inning_stints
         )
+        best_excess_positions = sum(
+            one_inning_solver.Value(item) for item in excess_position_counts
+        )
+        ideal_stints_feasible = False
+        one_inning_proven = False
 
     if ideal_stints_feasible:
         for stint_variables, unavoidable_singleton in ideal_one_inning_groups:
