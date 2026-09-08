@@ -8,12 +8,11 @@ in independent browser sessions without replacing one another's game setup.
 
 ## Live deployments
 
+- [Softball Fielding Optimizer](https://softball-fielding-optimizer.streamlit.app/) —
+  primary team-neutral deployment for Here For The Beer, Team Red, and future
+  teams.
 - [Here For The Beer](https://here-for-the-beer.streamlit.app/) — existing
   public team deployment. This address remains supported for current users.
-
-A separate team-neutral Streamlit address has not yet been provisioned. It will
-become the primary shared link for Here For The Beer, Team Red, and future
-teams without replacing the existing team URL above.
 
 ## Run locally
 
