@@ -38,7 +38,7 @@ async function downloadText(download) {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-test("issues #1, #3, and #6 keep the game-day outcome visible and current", async ({ page }, testInfo) => {
+test("issues #1, #3, and #19 keep the complete game-day outcome visible and current", async ({ page }, testInfo) => {
   test.setTimeout(90_000);
   await page.goto("/");
   const optimize = page.getByRole("button", { name: "Optimize seven innings" });
@@ -63,27 +63,20 @@ test("issues #1, #3, and #6 keep the game-day outcome visible and current", asyn
     result.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING
   ), await detailsHeading.elementHandle())).toBe(true);
 
-  const lineupView = page.getByRole("combobox", { name: /Lineup view/ });
-  await expect.poll(async () => selectedChoice(lineupView)).toBe("By inning");
-  await expect(
-    page.getByRole("table", { name: "Inning 1 assignments" }),
-  ).toBeVisible();
-  await expect(page.getByText(/Bench:/)).toBeVisible();
+  await expect(page.getByRole("combobox", { name: /Lineup view/ })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: /^Inning$/ })).toHaveCount(0);
+  const lineup = page.getByRole("table", { name: "Seven-inning lineup" });
+  await expect(lineup).toBeVisible();
+  await expect(lineup.getByRole("row")).toHaveCount(8);
+  await expect(lineup.getByRole("columnheader")).toHaveText([
+    "Inning", "P", "C", "1B", "2B", "3B", "SS", "LF", "LC", "RC", "RF", "Bench",
+  ]);
   if (testInfo.project.name === "mobile-touch") {
     expect(await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth + 1,
     )).toBe(true);
   }
 
-  for (const inning of [2, 3, 4, 5, 6, 7, 1]) {
-    await choose(page, "Inning", String(inning), testInfo);
-    await expect(
-      page.getByRole("table", { name: `Inning ${inning} assignments` }),
-    ).toBeVisible();
-  }
-
-  await choose(page, "Lineup view", "Full matrix", testInfo);
-  await expect(page.getByRole("combobox", { name: /Inning/ })).toBeHidden();
   const downloadPromise = page.waitForEvent("download");
   await activate(
     page.getByRole("button", { name: "Download full lineup CSV" }),

@@ -101,6 +101,11 @@ test("neutral setup chooser isolates teams and switches only after confirmation"
     await expect(page.getByRole("heading", { name: "Optimized lineup" })).toBeVisible({
       timeout: 30_000,
     });
+    await expect(page.getByRole("combobox", { name: /Lineup view/ })).toHaveCount(0);
+    await expect(page.getByRole("combobox", { name: /^Inning$/ })).toHaveCount(0);
+    await expect(
+      page.getByRole("table", { name: "Seven-inning lineup" }).getByRole("row"),
+    ).toHaveCount(8);
   });
 
   await test.step("a second browser session starts clean and can choose blank", async () => {

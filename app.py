@@ -58,22 +58,40 @@ st.markdown(
         min-height: 3rem;
         align-items: center;
     }
-    .accessible-lineup-table {
+    .seven-inning-lineup-scroll {
+        max-width: 100%;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+    .seven-inning-lineup-scroll:focus-visible {
+        outline: 0.2rem solid #ff4b4b;
+        outline-offset: 0.15rem;
+    }
+    .seven-inning-lineup {
         border-collapse: collapse;
-        table-layout: fixed;
+        min-width: 72rem;
         width: 100%;
     }
-    .accessible-lineup-table th,
-    .accessible-lineup-table td {
+    .seven-inning-lineup caption {
+        font-weight: 700;
+        padding: 0 0 0.5rem;
+        text-align: left;
+    }
+    .seven-inning-lineup th,
+    .seven-inning-lineup td {
         border-bottom: 1px solid rgba(49, 51, 63, 0.2);
         overflow-wrap: anywhere;
         padding: 0.5rem;
         text-align: left;
         vertical-align: top;
     }
-    .accessible-lineup-table th:first-child,
-    .accessible-lineup-table td:first-child {
-        width: 5rem;
+    .seven-inning-lineup th:first-child {
+        min-width: 4.5rem;
+    }
+    .seven-inning-lineup th:last-child,
+    .seven-inning-lineup td:last-child {
+        min-width: 10rem;
     }
     @media (max-width: 640px) {
         .block-container {
@@ -227,6 +245,7 @@ def initialize_setup(
         "next_player_id",
         "roster_revision",
         "editing_player_id",
+        "player_name_errors",
         "pending_new_player",
         "pending_remove_player_id",
         "confirm_reset",
@@ -240,8 +259,6 @@ def initialize_setup(
         "optimization_seconds",
         "error",
         "inputs_changed",
-        "lineup-view",
-        "lineup-inning",
         "default_roster_version",
     }
     if not preserve_profile:
@@ -267,6 +284,7 @@ def initialize_setup(
     st.session_state.next_player_id = len(roster) + 1
     st.session_state.roster_revision = previous_revision + 1
     st.session_state.editing_player_id = None
+    st.session_state.player_name_errors = {}
     st.session_state.pending_new_player = None
     st.session_state.pending_remove_player_id = None
     st.session_state.confirm_reset = False
@@ -284,7 +302,7 @@ def begin_setup_change() -> None:
     st.session_state.setup_change_widget_snapshot = {
         key: deepcopy(value)
         for key, value in st.session_state.items()
-        if key in {"league-profile", "lineup-view", "lineup-inning"}
+        if key == "league-profile"
         or str(key).startswith("available-")
     }
     st.session_state.confirm_setup_change = True
@@ -434,6 +452,15 @@ def save_player_edit(
 ) -> None:
     """Atomically commit one player form before Streamlit rerenders."""
 
+    name = str(st.session_state[name_key]).strip()
+    name_errors = dict(st.session_state.get("player_name_errors", {}))
+    if not name:
+        name_errors[player_id] = "Player name is required."
+        st.session_state.player_name_errors = name_errors
+        return
+    name_errors.pop(player_id, None)
+    st.session_state.player_name_errors = name_errors
+
     profile_key = st.session_state.get("league-profile", COED_RULES.key)
     previous_fingerprint = roster_fingerprint(
         st.session_state.roster,
@@ -453,7 +480,7 @@ def save_player_edit(
             for candidate in st.session_state.roster
             if str(candidate["id"]) == player_id
         )
-    record["name"] = str(st.session_state[name_key]).strip()
+    record["name"] = name
     record["gender"] = (
         st.session_state[gender_key]
         if gender_key is not None
@@ -480,6 +507,9 @@ def cancel_player_edit(player_id: str) -> None:
         and str(pending_new_player["id"]) == player_id
     ):
         st.session_state.pending_new_player = None
+    name_errors = dict(st.session_state.get("player_name_errors", {}))
+    name_errors.pop(player_id, None)
+    st.session_state.player_name_errors = name_errors
     st.session_state.editing_player_id = None
 
 
@@ -515,43 +545,44 @@ def schedule_table(result) -> pd.DataFrame:
     return table
 
 
-def inning_table(result, inning_number: int) -> pd.DataFrame:
-    assignments = result.assignments[inning_number - 1]
+def accessible_schedule_table(result) -> str:
+    """Return one semantic seven-inning lineup table for every viewport."""
+
     active = set(result.active_positions)
-    return pd.DataFrame(
-        [
-            {
-                "Position": position,
-                "Player": (
-                    assignments.get(position, "—") if position in active else "—"
-                ),
-            }
+    all_players = set(result.player_innings)
+    headers = ("Inning", *POSITIONS, "Bench")
+    header_cells = "".join(
+        f'<th scope="col">{escape(header)}</th>' for header in headers
+    )
+    rows = []
+    for inning_number, assignments in enumerate(result.assignments, start=1):
+        assignment_cells = "".join(
+            "<td>"
+            + escape(
+                str(
+                    assignments.get(position, "—")
+                    if position in active
+                    else "—"
+                )
+            )
+            + "</td>"
             for position in POSITIONS
-        ]
-    )
-
-
-def accessible_inning_table(result, inning_number: int) -> str:
-    """Return the inning assignments as an accessible semantic table."""
-
-    heading_id = f"inning-{inning_number}-assignments"
-    rows = "".join(
-        "<tr>"
-        f"<td>{escape(str(position))}</td>"
-        f"<td>{escape(str(player))}</td>"
-        "</tr>"
-        for position, player in inning_table(result, inning_number).itertuples(
-            index=False,
-            name=None,
         )
-    )
+        bench = sorted(all_players.difference(assignments.values()))
+        bench_text = ", ".join(bench) if bench else "None"
+        rows.append(
+            "<tr>"
+            f'<th scope="row">{inning_number}</th>'
+            f"{assignment_cells}<td>{escape(bench_text)}</td>"
+            "</tr>"
+        )
     return (
-        f'<h4 id="{heading_id}">Inning {inning_number} assignments</h4>'
-        f'<table class="accessible-lineup-table" aria-labelledby="{heading_id}" '
-        f'aria-label="Inning {inning_number} assignments">'
-        "<thead><tr><th scope=\"col\">Position</th>"
-        "<th scope=\"col\">Player</th></tr></thead>"
-        f"<tbody>{rows}</tbody></table>"
+        '<div class="seven-inning-lineup-scroll" role="region" '
+        'aria-label="Scrollable seven-inning lineup" tabindex="0">'
+        '<table class="seven-inning-lineup" aria-label="Seven-inning lineup">'
+        "<caption>Seven-inning lineup</caption>"
+        f"<thead><tr>{header_cells}</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
 
 
@@ -633,6 +664,8 @@ if "roster_revision" not in st.session_state:
     st.session_state.roster_revision = 0
 if "editing_player_id" not in st.session_state:
     st.session_state.editing_player_id = None
+if "player_name_errors" not in st.session_state:
+    st.session_state.player_name_errors = {}
 if "pending_new_player" not in st.session_state:
     st.session_state.pending_new_player = None
 if "pending_remove_player_id" not in st.session_state:
@@ -1044,34 +1077,8 @@ if result:
         f"{timing_text}"
     )
 
-    view_mode = st.selectbox(
-        "Lineup view",
-        options=["By inning", "Full matrix"],
-        index=0,
-        key="lineup-view",
-        width="stretch",
-        disabled=interaction_locked,
-    )
     lineup = schedule_table(result)
-
-    if view_mode == "Full matrix":
-        st.dataframe(lineup, width="stretch")
-    else:
-        inning_number = st.selectbox(
-            "Inning",
-            options=list(range(1, INNINGS + 1)),
-            index=0,
-            key="lineup-inning",
-            width="stretch",
-            disabled=interaction_locked,
-        )
-        st.markdown(
-            accessible_inning_table(result, int(inning_number)),
-            unsafe_allow_html=True,
-        )
-        assigned_names = set(result.assignments[int(inning_number) - 1].values())
-        bench = sorted(set(result.player_innings).difference(assigned_names))
-        st.caption("**Bench:** " + (", ".join(bench) if bench else "None"))
+    st.markdown(accessible_schedule_table(result), unsafe_allow_html=True)
 
     st.download_button(
         "Download full lineup CSV",
@@ -1122,6 +1129,7 @@ if st.button(
         "available": True,
         "preferences": set(),
     }
+    st.session_state.player_name_errors.pop(new_player_id, None)
     st.session_state.editing_player_id = new_player_id
     st.rerun()
 
@@ -1235,6 +1243,9 @@ for index, record in enumerate(details_roster):
                     value=str(record.get("name", "")),
                     key=name_key,
                 )
+                name_error = st.session_state.player_name_errors.get(player_id)
+                if name_error:
+                    st.error(name_error)
                 if gender_key is not None:
                     st.selectbox(
                         "Gender",
@@ -1313,6 +1324,7 @@ for index, record in enumerate(details_roster):
                 width="stretch",
                 disabled=interaction_locked,
             ):
+                st.session_state.player_name_errors.pop(player_id, None)
                 st.session_state.editing_player_id = player_id
                 st.rerun()
             if st.button(

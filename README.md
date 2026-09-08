@@ -65,8 +65,9 @@ The initial roster, genders, and positional preferences are loaded from
 an `Available` column. The app accepts `Yes`, `Y`, `True`, `1`, or `X` as a
 selected position.
 
-The default inning view is a semantic two-column table for screen-reader and
-mobile access. The complete seven-inning matrix remains available on screen and
+Every successful solve displays one semantic seven-inning matrix. On narrow
+screens, the matrix scrolls horizontally inside its own keyboard-accessible
+region without widening the page. The complete lineup also remains available
 as a CSV download. Explicit positions are preferred and hierarchy-derived
 fallback assignments are minimized. A live phase indicator and tiny dancing
 coach remain visible while the solver works.

@@ -75,17 +75,21 @@ async function downloadLineup(page, testInfo) {
 }
 
 function lineupTable(page) {
-  return page.getByRole("table", { name: /Inning \d+ assignments/ });
+  return page.getByRole("table", { name: "Seven-inning lineup" });
 }
 
-async function lineupPairs(page) {
+async function lineupRows(page) {
   const rows = lineupTable(page).getByRole("row");
-  const pairs = [];
+  const values = [];
   for (let index = 1; index < await rows.count(); index += 1) {
-    const cells = rows.nth(index).getByRole("cell");
-    pairs.push((await cells.allInnerTexts()).map((value) => value.trim()));
+    const row = rows.nth(index);
+    const inning = (await row.getByRole("rowheader").innerText()).trim();
+    const cells = (await row.getByRole("cell").allInnerTexts()).map(
+      (value) => value.trim(),
+    );
+    values.push([inning, ...cells]);
   }
-  return pairs;
+  return values;
 }
 
 function namesFromList(value) {
@@ -95,35 +99,36 @@ function namesFromList(value) {
   return value.split(", ").map((name) => name.trim()).sort();
 }
 
-async function benchNames(page) {
-  const text = await page.locator("[data-testid='stCaptionContainer']").filter({
-    hasText: "Bench:",
-  }).first().innerText();
-  return namesFromList(text.replace(/^Bench:\s*/, ""));
-}
-
-async function assertSemanticInning(page, inning, csvRow) {
-  await expect(
-    page.getByRole("heading", { name: `Inning ${inning} assignments` }),
-  ).toBeVisible();
+async function assertSemanticSchedule(page, csvRows) {
   const table = lineupTable(page);
   await expect(table).toBeVisible();
-  await expect(table.getByRole("columnheader")).toHaveText(["Position", "Player"]);
-  await expect(table.getByRole("row")).toHaveCount(11);
-  await expect(table.getByRole("cell")).toHaveCount(20);
+  await expect(table.getByRole("columnheader")).toHaveText([
+    "Inning", ...POSITIONS, "Bench",
+  ]);
+  await expect(table.getByRole("row")).toHaveCount(8);
+  await expect(table.getByRole("rowheader")).toHaveText([
+    "1", "2", "3", "4", "5", "6", "7",
+  ]);
 
-  const expectedPairs = POSITIONS.map((position) => [position, csvRow[position]]);
-  await expect.poll(() => lineupPairs(page)).toEqual(expectedPairs);
-  await expect.poll(() => benchNames(page)).toEqual(namesFromList(csvRow.Out));
+  const visibleRows = await lineupRows(page);
+  expect(visibleRows).toHaveLength(csvRows.length);
+  for (const [index, csvRow] of csvRows.entries()) {
+    const visibleRow = visibleRows[index];
+    expect(visibleRow[0]).toBe(String(csvRow.Inning));
+    expect(visibleRow.slice(1, 11)).toEqual(
+      POSITIONS.map((position) => csvRow[position]),
+    );
+    expect(namesFromList(visibleRow[11])).toEqual(namesFromList(csvRow.Out));
 
-  const activeNames = expectedPairs
-    .map(([_position, name]) => name)
-    .filter((name) => name !== "—");
-  expect(activeNames.every((name) => Boolean(name.trim()))).toBe(true);
-  expect(new Set(activeNames).size).toBe(activeNames.length);
+    const activeNames = visibleRow
+      .slice(1, 11)
+      .filter((name) => name !== "—");
+    expect(activeNames.every((name) => Boolean(name.trim()))).toBe(true);
+    expect(new Set(activeNames).size).toBe(activeNames.length);
+  }
 }
 
-test("the semantic inning lineup matches the full CSV and exposes reduced positions", async ({ page }, testInfo) => {
+test("issue #19 shows one semantic seven-inning lineup matching the full CSV", async ({ page }, testInfo) => {
   test.setTimeout(180_000);
   await page.goto("/");
   await renamePitcher(page, testInfo);
@@ -138,20 +143,40 @@ test("the semantic inning lineup matches the full CSV and exposes reduced positi
 
   const csvRows = await downloadLineup(page, testInfo);
   expect(csvRows.map((row) => Number(row.Inning))).toEqual([1, 2, 3, 4, 5, 6, 7]);
-
-  for (const csvRow of csvRows) {
-    const inning = Number(csvRow.Inning);
-    await choose(page, "Inning", String(inning), testInfo);
-    await assertSemanticInning(page, inning, csvRow);
-    await expect(
-      lineupTable(page).getByRole("cell", { name: LONG_PITCHER_NAME, exact: true }),
-    ).toHaveCount(1);
-  }
+  await assertSemanticSchedule(page, csvRows);
+  await expect(page.getByRole("combobox", { name: /Lineup view/ })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: /^Inning$/ })).toHaveCount(0);
+  await expect(
+    lineupTable(page).getByRole("cell", { name: LONG_PITCHER_NAME, exact: true }),
+  ).not.toHaveCount(0);
 
   if (testInfo.project.name === "mobile-touch") {
+    const scrollRegion = page.getByRole("region", {
+      name: "Scrollable seven-inning lineup",
+    });
+    await expect(scrollRegion).toHaveAttribute("tabindex", "0");
+    expect(await scrollRegion.evaluate(
+      (region) => region.scrollWidth > region.clientWidth,
+    )).toBe(true);
+    await scrollRegion.focus();
+    await expect(scrollRegion).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(
+      () => scrollRegion.evaluate((region) => region.scrollLeft),
+    ).toBeGreaterThan(0);
     expect(await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth + 1,
     )).toBe(true);
+    await page.evaluate(() => {
+      document.documentElement.style.zoom = "200%";
+    });
+    expect(await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+    )).toBe(true);
+    await expect(lineupTable(page).getByRole("row")).toHaveCount(8);
+    await page.evaluate(() => {
+      document.documentElement.style.zoom = "";
+    });
   }
 
   await choose(
@@ -173,24 +198,20 @@ test("the semantic inning lineup matches the full CSV and exposes reduced positi
     page.getByRole("heading", { name: "Optimized lineup" }),
   ).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/Open \(no gender fielding minimums\) profile/)).toBeVisible();
-  await choose(page, "Inning", "1", testInfo);
-  await expect(
-    page.getByRole("heading", { name: "Inning 1 assignments" }),
-  ).toBeVisible();
-  await expect.poll(() => lineupPairs(page)).toEqual(
-    POSITIONS.map((position) => [
-      position,
-      ["C", "RF"].includes(position) ? "—" : expect.any(String),
-    ]),
-  );
-  const reducedPairs = await lineupPairs(page);
-  expect(reducedPairs.find(([position]) => position === "C")?.[1]).toBe("—");
-  expect(reducedPairs.find(([position]) => position === "RF")?.[1]).toBe("—");
-  const reducedActiveNames = reducedPairs
-    .filter(([position]) => !["C", "RF"].includes(position))
-    .map(([_position, name]) => name);
-  expect(reducedActiveNames.every((name) => Boolean(name.trim()) && name !== "—")).toBe(true);
-  expect(new Set(reducedActiveNames).size).toBe(8);
+  const reducedCsvRows = await downloadLineup(page, testInfo);
+  await assertSemanticSchedule(page, reducedCsvRows);
+  const reducedRows = await lineupRows(page);
+  const cIndex = POSITIONS.indexOf("C") + 1;
+  const rfIndex = POSITIONS.indexOf("RF") + 1;
+  for (const row of reducedRows) {
+    expect(row[cIndex]).toBe("—");
+    expect(row[rfIndex]).toBe("—");
+    const activeNames = row
+      .slice(1, 11)
+      .filter((name) => name !== "—");
+    expect(activeNames).toHaveLength(8);
+    expect(new Set(activeNames).size).toBe(8);
+  }
 
   if (testInfo.project.name === "mobile-touch") {
     expect(await page.evaluate(

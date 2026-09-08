@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 const POSITIONS = ["P", "C", "1B", "2B", "3B", "SS", "LF", "LC", "RC", "RF"];
+const NEUTRAL_URL = "http://127.0.0.1:8518";
 const NEW_PLAYER = "Browser QA Player With A Very Long Dugout Nickname";
 const NEW_PLAYER_POSITIONS = ["P", "C", "SS"];
 const KEVIN_POSITIONS = ["2B", "3B", "SS", "LF", "LC", "RC"];
@@ -105,6 +106,61 @@ async function expectEditorValues(page, { name, gender, positions }) {
   await expect.poll(() => selectedGender(page)).toBe(gender);
   await expect.poll(() => selectedPositions(page)).toEqual(positions);
 }
+
+async function chooseBlankSetup(page, testInfo) {
+  await page.goto(NEUTRAL_URL);
+  const choice = page.getByRole("radio", { name: /^Start blank/ });
+  await activate(choice.locator("xpath=.."), testInfo);
+  await expect(choice).toBeChecked();
+  await activate(page.getByRole("button", { name: "Continue" }), testInfo);
+  await expect(page.getByText(/Current setup:.*Start blank/)).toBeVisible();
+}
+
+test("issue #18 rejects empty names without committing player state", async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  await chooseBlankSetup(page, testInfo);
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
+
+  await activate(page.getByRole("button", { name: "＋ Add first player" }), testInfo);
+  const nameInput = playerNameInput(page);
+  const requiredError = page.getByText("Player name is required.", { exact: true });
+  await expect(nameInput).toBeVisible();
+
+  await activate(page.getByRole("button", { name: "Save changes" }), testInfo);
+  await expect(nameInput).toBeVisible();
+  await expect(nameInput).toHaveValue("");
+  await expect(requiredError).toBeVisible();
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
+  await expect(page.getByText("Unnamed player", { exact: true })).toHaveCount(0);
+
+  await nameInput.fill("   ");
+  await activate(page.getByRole("button", { name: "Save changes" }), testInfo);
+  await expect(nameInput).toBeVisible();
+  await expect(requiredError).toBeVisible();
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
+
+  const validName = "Validated Browser Player";
+  await nameInput.fill(`  ${validName}  `);
+  await activate(positionButton(page, "C"), testInfo);
+  await activate(page.getByRole("button", { name: "Save changes" }), testInfo);
+  await expect(requiredError).toBeHidden();
+  await expect(nameInput).toBeHidden();
+  await expect(
+    page.getByRole("checkbox", { name: validName, exact: true }),
+  ).toBeChecked();
+
+  await editPlayer(page, validName, testInfo);
+  await nameInput.fill("\t ");
+  await activate(page.getByRole("button", { name: "Save changes" }), testInfo);
+  await expect(nameInput).toBeVisible();
+  await expect(requiredError).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", { name: validName, exact: true }),
+  ).toBeChecked();
+  await cancelEditor(page, testInfo);
+  await expect(requiredError).toBeHidden();
+  await expect(playerCard(page, validName)).toBeVisible();
+});
 
 test("issue #8 saves every individual edit and Cancel discards a draft", async ({ page }, testInfo) => {
   test.setTimeout(180_000);

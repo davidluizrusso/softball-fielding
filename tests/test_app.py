@@ -1,4 +1,7 @@
+from copy import deepcopy
+from html import unescape
 from pathlib import Path
+import re
 from unittest.mock import Mock
 
 import pytest
@@ -71,6 +74,28 @@ def element_with_key_prefix(elements, prefix):
 
 def availability_checkbox(app, player_id):
     return element_with_key(app.checkbox, f"available-{player_id}")
+
+
+def semantic_lineup(app):
+    markup = next(
+        markdown.value
+        for markdown in app.markdown
+        if '<table class="seven-inning-lineup"' in markdown.value
+    )
+    headers = [
+        unescape(value)
+        for value in re.findall(r'<th scope="col">(.*?)</th>', markup)
+    ]
+    body = re.search(r"<tbody>(.*?)</tbody>", markup)
+    assert body is not None
+    rows = [
+        [
+            unescape(value)
+            for value in re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", row)
+        ]
+        for row in re.findall(r"<tr>(.*?)</tr>", body.group(1))
+    ]
+    return markup, headers, rows
 
 
 def set_available_player_ids(app, player_ids):
@@ -309,9 +334,6 @@ def test_neutral_setup_change_cancel_preserves_and_confirm_reinitializes(monkeyp
     next(
         button for button in app.button if button.label == "Optimize seven innings"
     ).click().run(timeout=20)
-    next(
-        selectbox for selectbox in app.selectbox if selectbox.label == "Lineup view"
-    ).set_value("Full matrix").run(timeout=20)
     preserved_roster = [
         {**record, "preferences": set(record["preferences"])}
         for record in app.session_state["roster"]
@@ -339,7 +361,6 @@ def test_neutral_setup_change_cancel_preserves_and_confirm_reinitializes(monkeyp
     assert app.session_state["result"] == preserved_result
     assert app.session_state["result_fingerprint"] == preserved_fingerprint
     assert app.session_state["league-profile"] == "open"
-    assert app.session_state["lineup-view"] == "Full matrix"
     assert not availability_checkbox(app, first_id).value
 
     next(
@@ -362,7 +383,6 @@ def test_neutral_setup_change_cancel_preserves_and_confirm_reinitializes(monkeyp
     assert availability_checkbox(app, "player-1").value
     assert app.session_state["result"] is None
     assert "result_fingerprint" not in app.session_state.filtered_state
-    assert "lineup-view" not in app.session_state.filtered_state
     assert "pending-setup-target" not in app.session_state.filtered_state
 
 
@@ -418,48 +438,23 @@ def test_app_loads_csv_defaults_and_optimizes(monkeypatch):
         "Optimized in" in caption.value and "seconds" in caption.value
         for caption in app.caption
     )
-    assert any(
-        selectbox.label == "Lineup view" and selectbox.value == "By inning"
+    assert not any(
+        selectbox.label in {"Lineup view", "Inning"}
         for selectbox in app.selectbox
     )
-    inning_selector = next(
-        selectbox for selectbox in app.selectbox if selectbox.label == "Inning"
-    )
-    inning_selector.set_value(7).run(timeout=20)
-    semantic_lineup = next(
-        markdown.value
-        for markdown in app.markdown
-        if '<table class="accessible-lineup-table"' in markdown.value
-    )
-    assert "Inning 7 assignments" in semantic_lineup
-    assert semantic_lineup.count("<tr>") == len(POSITIONS) + 1
-    assert semantic_lineup.count("<td>") == len(POSITIONS) * 2
-    assert any(
-        caption.value.startswith("**Bench:**") for caption in app.caption
-    )
-
-    view_selector = next(
-        selectbox for selectbox in app.selectbox if selectbox.label == "Lineup view"
-    )
-    view_selector.set_value("Full matrix").run(timeout=20)
+    markup, headers, rows = semantic_lineup(app)
+    assert 'aria-label="Seven-inning lineup"' in markup
+    assert 'aria-label="Scrollable seven-inning lineup"' in markup
+    assert headers == ["Inning", *POSITIONS, "Bench"]
+    assert len(rows) == INNINGS
+    assert [row[0] for row in rows] == [str(value) for value in range(1, 8)]
+    assert all(len(row) == len(POSITIONS) + 2 for row in rows)
+    assert all(len(row[-1].split(", ")) == 5 for row in rows)
     assert list(app.dataframe[0].value.columns) == [
-        "P",
-        "C",
-        "1B",
-        "2B",
-        "3B",
-        "SS",
-        "LF",
-        "LC",
-        "RC",
-        "RF",
-        "Out",
+        "Player",
+        "Innings",
+        "Positions",
     ]
-    assert len(app.dataframe[0].value) == 7
-    assert all(
-        len(players_out.split(", ")) == 5
-        for players_out in app.dataframe[0].value["Out"]
-    )
     assert any(
         button.label == "Download full lineup CSV"
         for button in app.get("download_button")
@@ -745,10 +740,6 @@ def test_noop_player_save_preserves_current_result(monkeypatch):
     original_attempt_fingerprint = app.session_state["last_attempt_fingerprint"]
     original_result_fingerprint = app.session_state["result_fingerprint"]
     original_optimization_seconds = app.session_state["optimization_seconds"]
-    next(
-        selectbox for selectbox in app.selectbox if selectbox.label == "Inning"
-    ).set_value(7).run(timeout=20)
-
     next(button for button in app.button if button.label == "Edit Kevin").click().run(
         timeout=20
     )
@@ -776,12 +767,11 @@ def test_noop_player_save_preserves_current_result(monkeypatch):
     assert any(
         subheader.value == "Optimized lineup" for subheader in app.subheader
     )
-    assert next(
-        selectbox for selectbox in app.selectbox if selectbox.label == "Lineup view"
-    ).value == "By inning"
-    assert next(
-        selectbox for selectbox in app.selectbox if selectbox.label == "Inning"
-    ).value == 7
+    assert not any(
+        selectbox.label in {"Lineup view", "Inning"}
+        for selectbox in app.selectbox
+    )
+    assert semantic_lineup(app)[1] == ["Inning", *POSITIONS, "Bench"]
     assert any(
         button.label == "Download full lineup CSV"
         for button in app.get("download_button")
@@ -844,7 +834,7 @@ def test_semantic_lineup_escapes_player_names(monkeypatch):
     semantic_lineup = next(
         markdown.value
         for markdown in app.markdown
-        if '<table class="accessible-lineup-table"' in markdown.value
+        if '<table class="seven-inning-lineup"' in markdown.value
     )
     assert hostile_name not in semantic_lineup
     assert "&lt;img src=x onerror=alert(1)&gt;" in semantic_lineup
@@ -953,24 +943,178 @@ def test_invalid_available_player_is_identified_before_optimization(monkeypatch)
     ).disabled
 
 
-def test_available_unnamed_player_warns_but_does_not_block(monkeypatch):
+@pytest.mark.parametrize("setup_key", ["legacy", "team-red", "blank"])
+def test_empty_new_player_name_stays_a_draft_across_setups(
+    monkeypatch, setup_key
+):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
-    app = AppTest.from_file(APP_PATH).run(timeout=20)
-    next(button for button in app.button if button.label == "＋ Add player").click().run(
+    if setup_key == "legacy":
+        app = AppTest.from_file(APP_PATH).run(timeout=20)
+    else:
+        app = choose_neutral_setup(
+            AppTest.from_file(NEUTRAL_APP_PATH).run(timeout=20),
+            setup_key,
+        )
+
+    if app.session_state["roster"]:
+        next(
+            button
+            for button in app.button
+            if button.label == "Optimize seven innings"
+        ).click().run(timeout=20)
+
+    committed_roster = deepcopy(app.session_state["roster"])
+    committed_state = {
+        key: deepcopy(app.session_state.filtered_state.get(key))
+        for key in (
+            "roster_revision",
+            "result",
+            "error",
+            "result_fingerprint",
+            "last_attempt_fingerprint",
+            "optimization_seconds",
+            "inputs_changed",
+        )
+    }
+    add_label = "＋ Add first player" if not committed_roster else "＋ Add player"
+    next(button for button in app.button if button.label == add_label).click().run(
         timeout=20
     )
+    pending_id = app.session_state["pending_new_player"]["id"]
+    element_with_key_prefix(
+        app.text_input, f"draft-name-{pending_id}"
+    ).set_value(" \t ")
     next(button for button in app.button if button.label == "Save changes").click().run(
         timeout=20
     )
 
-    assert any(
-        "available unnamed row is excluded" in warning.value
-        for warning in app.warning
+    assert app.session_state["roster"] == committed_roster
+    assert app.session_state["pending_new_player"]["id"] == pending_id
+    assert app.session_state["editing_player_id"] == pending_id
+    assert app.session_state["player_name_errors"] == {
+        pending_id: "Player name is required."
+    }
+    assert any(error.value == "Player name is required." for error in app.error)
+    assert not any(checkbox.label == "Unnamed player" for checkbox in app.checkbox)
+    for key, expected in committed_state.items():
+        assert app.session_state.filtered_state.get(key) == expected
+
+    valid_name = f"Valid {setup_key} player"
+    element_with_key_prefix(
+        app.text_input, f"draft-name-{pending_id}"
+    ).set_value(f" {valid_name} ")
+    element_with_key_prefix(
+        app.get("button_group"), f"draft-preferences-{pending_id}"
+    ).set_value(["C"])
+    next(button for button in app.button if button.label == "Save changes").click().run(
+        timeout=20
     )
-    assert not next(
+    saved = next(
+        record
+        for record in app.session_state["roster"]
+        if record["id"] == pending_id
+    )
+    assert saved["name"] == valid_name
+    assert saved["preferences"] == {"C"}
+    assert app.session_state["editing_player_id"] is None
+    assert not app.session_state["player_name_errors"]
+
+    next(button for button in app.button if button.label == "＋ Add player").click().run(
+        timeout=20
+    )
+    cancelled_id = app.session_state["pending_new_player"]["id"]
+    next(button for button in app.button if button.label == "Save changes").click().run(
+        timeout=20
+    )
+    assert cancelled_id in app.session_state["player_name_errors"]
+    next(button for button in app.button if button.label == "Cancel").click().run(
+        timeout=20
+    )
+    assert app.session_state["pending_new_player"] is None
+    assert not app.session_state["player_name_errors"]
+    assert not any(
+        record["id"] == cancelled_id for record in app.session_state["roster"]
+    )
+
+
+def test_empty_existing_player_rename_preserves_committed_outcome(monkeypatch):
+    optimizer = Mock(side_effect=fake_result)
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
+    next(
         button for button in app.button if button.label == "Optimize seven innings"
-    ).disabled
+    ).click().run(timeout=20)
+    original_roster = deepcopy(app.session_state["roster"])
+    original_revision = app.session_state["roster_revision"]
+    original_result = app.session_state["result"]
+    original_result_fingerprint = app.session_state["result_fingerprint"]
+    original_attempt_fingerprint = app.session_state["last_attempt_fingerprint"]
+    original_timing = app.session_state["optimization_seconds"]
+
+    next(button for button in app.button if button.label == "Edit Kevin").click().run(
+        timeout=20
+    )
+    element_with_key_prefix(app.text_input, "draft-name-player-9").set_value("   ")
+    next(button for button in app.button if button.label == "Save changes").click().run(
+        timeout=20
+    )
+
+    assert app.session_state["roster"] == original_roster
+    assert app.session_state["roster_revision"] == original_revision
+    assert app.session_state["result"] == original_result
+    assert app.session_state["result_fingerprint"] == original_result_fingerprint
+    assert app.session_state["last_attempt_fingerprint"] == original_attempt_fingerprint
+    assert app.session_state["optimization_seconds"] == original_timing
+    assert app.session_state["editing_player_id"] == "player-9"
+    assert any(error.value == "Player name is required." for error in app.error)
+
+    element_with_key_prefix(app.text_input, "draft-name-player-9").set_value(
+        "Kevin Renamed"
+    )
+    next(button for button in app.button if button.label == "Save changes").click().run(
+        timeout=20
+    )
+    assert next(
+        record
+        for record in app.session_state["roster"]
+        if record["id"] == "player-9"
+    )["name"] == "Kevin Renamed"
+    assert app.session_state["result"] is None
+    assert app.session_state["roster_revision"] == original_revision + 1
+    assert not app.session_state["player_name_errors"]
+
+
+def test_empty_existing_player_rename_preserves_solver_error(monkeypatch):
+    solver_message = "No legal schedule can satisfy this roster."
+    optimizer = Mock(side_effect=LineupError(solver_message))
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
+    next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    ).click().run(timeout=20)
+    original_roster = deepcopy(app.session_state["roster"])
+    original_revision = app.session_state["roster_revision"]
+    original_attempt_fingerprint = app.session_state["last_attempt_fingerprint"]
+
+    next(button for button in app.button if button.label == "Edit Kevin").click().run(
+        timeout=20
+    )
+    element_with_key_prefix(app.text_input, "draft-name-player-9").set_value("\t")
+    next(button for button in app.button if button.label == "Save changes").click().run(
+        timeout=20
+    )
+
+    assert app.session_state["roster"] == original_roster
+    assert app.session_state["roster_revision"] == original_revision
+    assert app.session_state["error"] == solver_message
+    assert app.session_state["last_attempt_fingerprint"] == original_attempt_fingerprint
+    assert app.session_state["result"] is None
+    assert {error.value for error in app.error} == {
+        solver_message,
+        "Player name is required.",
+    }
+    optimizer.assert_called_once()
 
 
 def test_duplicate_available_names_block_before_optimization(monkeypatch):
@@ -1242,18 +1386,23 @@ def test_app_presents_legal_active_positions_for_each_lineup_size(
         for caption in app.caption
     )
 
-    next(
-        selectbox for selectbox in app.selectbox if selectbox.label == "Lineup view"
-    ).set_value("Full matrix").run(timeout=20)
-    lineup = app.dataframe[0].value
-    assert list(lineup.columns) == [*POSITIONS, "Out"]
-    for position in expected_active:
-        assert (lineup[position] != "—").all()
-    for position in inactive_positions:
-        assert (lineup[position] == "—").all()
+    _markup, headers, rows = semantic_lineup(app)
+    assert headers == ["Inning", *POSITIONS, "Bench"]
+    position_indexes = {
+        position: headers.index(position) for position in POSITIONS
+    }
+    for row in rows:
+        for position in expected_active:
+            assert row[position_indexes[position]] != "—"
+        for position in inactive_positions:
+            assert row[position_indexes[position]] == "—"
+        active_names = [
+            row[position_indexes[position]] for position in expected_active
+        ]
+        assert len(set(active_names)) == len(active_names)
     expected_out_count = available_count - lineup_size
     assert all(
-        (len(players_out.split(", ")) if players_out else 0)
+        (len(row[-1].split(", ")) if row[-1] != "None" else 0)
         == expected_out_count
-        for players_out in lineup["Out"]
+        for row in rows
     )

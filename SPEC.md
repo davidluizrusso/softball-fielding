@@ -23,13 +23,13 @@ All players default to available when the file has no availability column.
 The legacy entrypoint opens directly with the Here For The Beer CSV roster and
 Co-ed as its default profile. The neutral entrypoint blocks all roster controls
 until the user explicitly chooses Here For The Beer, Team Red, or an empty
-roster. Team Red loads the approved `team_red_roster.csv`, makes all players
+roster. Team Red loads the published `team_red_roster.csv`, makes all players
 available, and locks the profile to Open. An empty setup keeps the league
 profile selectable and collects gender for newly added players.
 
 Only one setup exists in a browser session. A setup change requires destructive
 confirmation and atomically clears roster edits, availability widgets, open
-drafts, results, errors, fingerprints, timing, and lineup-view state before the
+drafts, results, errors, fingerprints, and timing before the
 new setup is loaded. Canceling the confirmation preserves those values. Reset
 restores the currently active roster template; it never changes teams. No
 account, durable storage, or cross-session team state is implied.
@@ -136,10 +136,14 @@ incumbent is labeled `FEASIBLE`.
 
 ## Output
 
-- A matrix with innings 1–7 as rows and all ten positions as columns.
-- An inning-by-inning semantic table exposing position and player assignments
-  to assistive technology.
+- One semantic matrix with innings 1–7 as row headers and `P`, `C`, `1B`, `2B`,
+  `3B`, `SS`, `LF`, `LC`, `RC`, `RF`, and `Bench` as column headers.
+- All seven innings exist in the same table immediately after optimization;
+  narrow screens scroll the matrix inside a keyboard-accessible region rather
+  than using lineup-view or inning selectors.
 - Inactive positions are shown as `—`.
+- The CSV retains `Out` as its final header; each visible `Bench` cell contains
+  the same available-but-unassigned player set.
 - A playing-time summary showing innings played and positions used.
 - A clear explanation when no feasible schedule exists.
 
