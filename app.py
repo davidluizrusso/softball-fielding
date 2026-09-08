@@ -1,9 +1,10 @@
 """Streamlit interface for the softball fielding optimizer."""
 
+from copy import deepcopy
 from html import escape
 from pathlib import Path
 from time import perf_counter
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import pandas as pd
 import streamlit as st
@@ -12,11 +13,13 @@ from softball_fielding import (
     COED_RULES,
     LEAGUE_RULES,
     LineupError,
+    OPEN_RULES,
     Player,
     lineup_plan,
     optimize_game,
 )
 from softball_fielding.models import INNINGS, POSITIONS
+from softball_fielding.roster_templates import team_red_roster
 
 
 st.set_page_config(
@@ -41,6 +44,10 @@ st.markdown(
     }
     [data-testid="stCheckbox"] label {
         min-height: 2.75rem;
+        align-items: center;
+    }
+    [data-testid="stRadio"] label {
+        min-height: 3rem;
         align-items: center;
     }
     .accessible-lineup-table {
@@ -73,7 +80,8 @@ st.markdown(
         }
         [data-testid="stButton"] button,
         [data-testid="stExpander"] summary,
-        [data-testid="stCheckbox"] label {
+        [data-testid="stCheckbox"] label,
+        [data-testid="stRadio"] label {
             min-height: 3rem;
         }
     }
@@ -85,6 +93,20 @@ st.markdown(
 
 ROSTER_CSV = Path(__file__).with_name("roster_positions.csv")
 DEFAULT_ROSTER_VERSION = 1
+IS_NEUTRAL_DEPLOYMENT = bool(globals().get("NEUTRAL_DEPLOYMENT", False))
+HERE_FOR_THE_BEER_SETUP = "here-for-the-beer"
+TEAM_RED_SETUP = "team-red"
+BLANK_SETUP = "blank"
+SETUP_LABELS = {
+    HERE_FOR_THE_BEER_SETUP: "Here For The Beer",
+    TEAM_RED_SETUP: "Team Red",
+    BLANK_SETUP: "Start blank",
+}
+SETUP_DEFAULT_PROFILES = {
+    HERE_FOR_THE_BEER_SETUP: COED_RULES.key,
+    TEAM_RED_SETUP: OPEN_RULES.key,
+    BLANK_SETUP: COED_RULES.key,
+}
 LEGACY_SAMPLE_NAMES = {
     "Alex",
     "Blair",
@@ -171,6 +193,120 @@ def default_roster() -> List[Dict[str, object]]:
             + "."
         )
     return roster
+
+
+def roster_for_setup(setup_key: str) -> List[Dict[str, object]]:
+    if setup_key == HERE_FOR_THE_BEER_SETUP:
+        return default_roster()
+    if setup_key == TEAM_RED_SETUP:
+        return team_red_roster()
+    if setup_key == BLANK_SETUP:
+        return []
+    raise ValueError(f"Unsupported roster setup: {setup_key!r}.")
+
+
+def initialize_setup(
+    setup_key: str,
+    *,
+    preserve_profile: bool = False,
+) -> None:
+    """Atomically replace all setup-scoped session state."""
+
+    existing_profile = st.session_state.get("league-profile")
+    previous_revision = int(st.session_state.get("roster_revision", -1))
+    setup_state_keys = {
+        "roster",
+        "next_player_id",
+        "roster_revision",
+        "editing_player_id",
+        "pending_new_player",
+        "pending_remove_player_id",
+        "confirm_reset",
+        "confirm_setup_change",
+        "setup_change_widget_snapshot",
+        "setup-choice",
+        "pending-setup-target",
+        "result",
+        "result_fingerprint",
+        "last_attempt_fingerprint",
+        "optimization_seconds",
+        "error",
+        "inputs_changed",
+        "lineup-view",
+        "lineup-inning",
+        "default_roster_version",
+    }
+    if not preserve_profile:
+        setup_state_keys.add("league-profile")
+    for key in list(st.session_state):
+        key_text = str(key)
+        if (
+            key in setup_state_keys
+            or key_text.startswith("available-")
+            or key_text.startswith("draft-")
+            or key_text.startswith("edit-")
+            or key_text.startswith("remove-")
+            or key_text.startswith("confirm-remove-")
+            or key_text.startswith("cancel-remove-")
+            or key_text.startswith("select-all-")
+            or key_text.startswith("clear-all-")
+        ):
+            del st.session_state[key]
+
+    roster = roster_for_setup(setup_key)
+    st.session_state.active_setup = setup_key
+    st.session_state.roster = roster
+    st.session_state.next_player_id = len(roster) + 1
+    st.session_state.roster_revision = previous_revision + 1
+    st.session_state.editing_player_id = None
+    st.session_state.pending_new_player = None
+    st.session_state.pending_remove_player_id = None
+    st.session_state.confirm_reset = False
+    st.session_state.confirm_setup_change = False
+    st.session_state.result = None
+    st.session_state.error = None
+    st.session_state.inputs_changed = False
+    if setup_key == HERE_FOR_THE_BEER_SETUP:
+        st.session_state.default_roster_version = DEFAULT_ROSTER_VERSION
+    if not preserve_profile or existing_profile is None:
+        st.session_state["league-profile"] = SETUP_DEFAULT_PROFILES[setup_key]
+
+
+def begin_setup_change() -> None:
+    st.session_state.setup_change_widget_snapshot = {
+        key: deepcopy(value)
+        for key, value in st.session_state.items()
+        if key in {"league-profile", "lineup-view", "lineup-inning"}
+        or str(key).startswith("available-")
+    }
+    st.session_state.confirm_setup_change = True
+
+
+def cancel_setup_change() -> None:
+    for key, value in st.session_state.get(
+        "setup_change_widget_snapshot", {}
+    ).items():
+        st.session_state[key] = value
+    st.session_state.confirm_setup_change = False
+    if "setup_change_widget_snapshot" in st.session_state:
+        del st.session_state["setup_change_widget_snapshot"]
+    if "pending-setup-target" in st.session_state:
+        del st.session_state["pending-setup-target"]
+
+
+def reset_active_roster() -> None:
+    initialize_setup(
+        st.session_state.active_setup,
+        preserve_profile=True,
+    )
+
+
+def begin_roster_reset() -> None:
+    st.session_state.confirm_reset = True
+
+
+def cancel_roster_reset() -> None:
+    st.session_state.confirm_reset = False
 
 
 def roster_from_legacy_table(table: pd.DataFrame) -> List[Dict[str, object]]:
@@ -285,7 +421,7 @@ def roster_problems(
 def save_player_edit(
     player_id: str,
     name_key: str,
-    gender_key: str,
+    gender_key: Optional[str],
     preferences_key: str,
 ) -> None:
     """Atomically commit one player form before Streamlit rerenders."""
@@ -310,7 +446,11 @@ def save_player_edit(
             if str(candidate["id"]) == player_id
         )
     record["name"] = str(st.session_state[name_key]).strip()
-    record["gender"] = st.session_state[gender_key]
+    record["gender"] = (
+        st.session_state[gender_key]
+        if gender_key is not None
+        else "Unspecified"
+    )
     record["preferences"] = set(st.session_state[preferences_key] or [])
     st.session_state.editing_player_id = None
     committed_inputs_changed = previous_fingerprint != roster_fingerprint(
@@ -422,12 +562,55 @@ def summary_table(result) -> pd.DataFrame:
     )
 
 
+st.title("🥎 Softball Fielding Optimizer")
+st.caption(
+    "Build a legal seven-inning lineup while balancing playing time and keeping positions consistent."
+)
+
+if not IS_NEUTRAL_DEPLOYMENT and "active_setup" not in st.session_state:
+    st.session_state.active_setup = HERE_FOR_THE_BEER_SETUP
+
+if IS_NEUTRAL_DEPLOYMENT and "active_setup" not in st.session_state:
+    st.subheader("Choose a starting setup")
+    st.caption(
+        "Load one team’s defaults or start with an empty roster. Your choice "
+        "and edits stay in this browser session."
+    )
+    setup_choice = st.radio(
+        "Starting setup",
+        options=list(SETUP_LABELS),
+        format_func=lambda key: SETUP_LABELS[key],
+        captions=[
+            "Current roster · Co-ed rules",
+            "Approved roster · Open rules",
+            "No players · Choose your league rules",
+        ],
+        index=None,
+        key="setup-choice",
+    )
+    st.button(
+        "Continue",
+        type="primary",
+        width="stretch",
+        disabled=setup_choice is None,
+        on_click=initialize_setup,
+        args=(setup_choice,),
+    )
+    st.stop()
+
+active_setup = st.session_state.get(
+    "active_setup", HERE_FOR_THE_BEER_SETUP
+)
 if "roster" not in st.session_state:
-    st.session_state.roster = default_roster()
+    initialize_setup(active_setup)
 elif isinstance(st.session_state.roster, pd.DataFrame):
     st.session_state.roster = roster_from_legacy_table(st.session_state.roster)
 
-if st.session_state.get("default_roster_version") != DEFAULT_ROSTER_VERSION:
+if (
+    active_setup == HERE_FOR_THE_BEER_SETUP
+    and st.session_state.get("default_roster_version")
+    != DEFAULT_ROSTER_VERSION
+):
     current_names = {
         str(record.get("name", "")).strip()
         for record in st.session_state.roster
@@ -448,30 +631,94 @@ if "pending_remove_player_id" not in st.session_state:
     st.session_state.pending_remove_player_id = None
 if "confirm_reset" not in st.session_state:
     st.session_state.confirm_reset = False
+if "confirm_setup_change" not in st.session_state:
+    st.session_state.confirm_setup_change = False
 
 roster: List[Dict[str, object]] = st.session_state.roster
 editing_player_id = st.session_state.editing_player_id
 editor_open = editing_player_id is not None
 pending_remove_player_id = st.session_state.pending_remove_player_id
+setup_change_open = bool(st.session_state.confirm_setup_change)
 confirmation_open = (
-    pending_remove_player_id is not None or st.session_state.confirm_reset
+    pending_remove_player_id is not None
+    or st.session_state.confirm_reset
+    or setup_change_open
 )
 interaction_locked = editor_open or confirmation_open
 
-st.title("🥎 Softball Fielding Optimizer")
-st.caption(
-    "Build a legal seven-inning lineup while balancing playing time and keeping positions consistent."
-)
+if IS_NEUTRAL_DEPLOYMENT:
+    st.caption(f"Current setup: **{SETUP_LABELS[active_setup]}**")
+    if setup_change_open:
+        setup_targets = [
+            setup_key for setup_key in SETUP_LABELS if setup_key != active_setup
+        ]
+        target_setup = st.radio(
+            "Switch to",
+            options=setup_targets,
+            format_func=lambda key: SETUP_LABELS[key],
+            index=None,
+            key="pending-setup-target",
+        )
+        target_label = SETUP_LABELS.get(target_setup)
+        if target_label is None:
+            st.info("Choose a new setup, then confirm the switch.")
+        else:
+            st.warning(
+                f"Switch to {target_label}? This will discard all roster changes, "
+                "availability selections, and the current optimized lineup in this "
+                "browser session. This cannot be undone."
+            )
+        st.button(
+            f"Keep {SETUP_LABELS[active_setup]}",
+            width="stretch",
+            on_click=cancel_setup_change,
+        )
+        st.button(
+            (
+                f"Discard changes and switch to {target_label}"
+                if target_label is not None
+                else "Discard changes and switch"
+            ),
+            type="primary",
+            width="stretch",
+            disabled=target_setup is None,
+            on_click=initialize_setup,
+            args=(target_setup,),
+        )
+        st.stop()
+    st.button(
+        "Change roster setup",
+        width="stretch",
+        disabled=editor_open
+        or pending_remove_player_id is not None
+        or st.session_state.confirm_reset,
+        help=(
+            "Finish the current roster action first."
+            if editor_open
+            or pending_remove_player_id is not None
+            or st.session_state.confirm_reset
+            else None
+        ),
+        on_click=begin_setup_change,
+    )
 
 profile_by_key = {profile.key: profile for profile in LEAGUE_RULES}
-selected_profile_key = st.selectbox(
-    "League rules",
-    options=list(profile_by_key),
-    format_func=lambda key: profile_by_key[key].label,
-    key="league-profile",
-    width="stretch",
-    disabled=interaction_locked,
-)
+if active_setup == TEAM_RED_SETUP:
+    st.session_state["league-profile"] = OPEN_RULES.key
+    selected_profile_key = OPEN_RULES.key
+    st.info(
+        "League rules: **Open (no gender fielding minimums)**. Team Red stays "
+        "on Open rules because this roster does not collect gender."
+    )
+else:
+    selected_profile_key = st.selectbox(
+        "League rules",
+        options=list(profile_by_key),
+        format_func=lambda key: profile_by_key[key].label,
+        key="league-profile",
+        width="stretch",
+        disabled=interaction_locked,
+    )
 league_rules = profile_by_key[selected_profile_key]
 
 with st.expander("Lineup rules", expanded=False):
@@ -512,7 +759,14 @@ player_labels = {
     str(record["id"]): str(record.get("name", "")).strip() or "Unnamed player"
     for record in roster
 }
-if league_rules == COED_RULES:
+if not roster:
+    st.info(
+        "Roster is empty. Add players and their preferred positions to get "
+        "started. You’ll need at least 8 available players to optimize."
+    )
+    display_roster = []
+    availability_groups = ()
+elif league_rules == COED_RULES:
     display_roster = sorted(
         roster,
         key=lambda record: (
@@ -786,6 +1040,7 @@ if result:
         "Lineup view",
         options=["By inning", "Full matrix"],
         index=0,
+        key="lineup-view",
         width="stretch",
         disabled=interaction_locked,
     )
@@ -798,6 +1053,7 @@ if result:
             "Inning",
             options=list(range(1, INNINGS + 1)),
             index=0,
+            key="lineup-inning",
             width="stretch",
             disabled=interaction_locked,
         )
@@ -823,14 +1079,21 @@ if result:
 
 st.divider()
 st.subheader("Player details & preferences")
-st.caption(
-    "Open a player card to edit their name, gender, or preferred positions. "
-    "The optimizer may use hierarchy-derived fallback positions only after "
-    "playing-time fairness."
-)
+if active_setup == TEAM_RED_SETUP:
+    st.caption(
+        "Open a player card to edit their name or preferred positions. "
+        "Gender is not collected for this Open-rules roster. The optimizer "
+        "may use hierarchy-derived fallback positions only after playing-time fairness."
+    )
+else:
+    st.caption(
+        "Open a player card to edit their name, gender, or preferred positions. "
+        "The optimizer may use hierarchy-derived fallback positions only after "
+        "playing-time fairness."
+    )
 
 if st.button(
-    "＋ Add player",
+    "＋ Add first player" if not roster else "＋ Add player",
     width="stretch",
     disabled=interaction_locked,
     help=(
@@ -845,7 +1108,9 @@ if st.button(
     st.session_state.pending_new_player = {
         "id": new_player_id,
         "name": "",
-        "gender": "Woman",
+        "gender": (
+            "Unspecified" if active_setup == TEAM_RED_SETUP else "Woman"
+        ),
         "available": True,
         "preferences": set(),
     }
@@ -853,34 +1118,55 @@ if st.button(
     st.rerun()
 
 if st.session_state.confirm_reset:
-    st.warning("Replace all current session edits with the CSV defaults?")
-    confirm_column, cancel_column = st.columns(2)
-    with confirm_column:
-        confirm_reset_clicked = st.button(
-            "Confirm reset", type="primary", width="stretch"
+    reset_descriptions = {
+        HERE_FOR_THE_BEER_SETUP: "the Here For The Beer CSV defaults",
+        TEAM_RED_SETUP: "the approved Team Red defaults",
+        BLANK_SETUP: "a blank roster",
+    }
+    if IS_NEUTRAL_DEPLOYMENT:
+        st.warning(
+            "Replace all current session edits with "
+            f"{reset_descriptions[active_setup]}? This discards the current "
+            "optimized lineup."
         )
-    with cancel_column:
-        cancel_reset_clicked = st.button("Cancel reset", width="stretch")
-
-    if confirm_reset_clicked:
-        for key in list(st.session_state):
-            if str(key).startswith("available-player-"):
-                del st.session_state[key]
-        st.session_state.roster = default_roster()
-        st.session_state.next_player_id = len(st.session_state.roster) + 1
-        st.session_state.roster_revision += 1
-        st.session_state.editing_player_id = None
-        st.session_state.pending_new_player = None
-        st.session_state.confirm_reset = False
-        st.session_state.result = None
-        st.session_state.error = None
-        st.rerun()
-    if cancel_reset_clicked:
-        st.session_state.confirm_reset = False
-        st.rerun()
+        st.button(
+            "Keep current roster",
+            width="stretch",
+            on_click=cancel_roster_reset,
+        )
+        st.button(
+            "Clear roster" if active_setup == BLANK_SETUP else "Reset roster",
+            type="primary",
+            width="stretch",
+            on_click=reset_active_roster,
+        )
+    else:
+        st.warning("Replace all current session edits with the CSV defaults?")
+        confirm_column, cancel_column = st.columns(2)
+        with confirm_column:
+            st.button(
+                "Confirm reset",
+                type="primary",
+                width="stretch",
+                on_click=reset_active_roster,
+            )
+        with cancel_column:
+            st.button(
+                "Cancel reset",
+                width="stretch",
+                on_click=cancel_roster_reset,
+            )
 else:
-    if st.button(
-        "Reset to CSV defaults",
+    if not IS_NEUTRAL_DEPLOYMENT:
+        reset_label = "Reset to CSV defaults"
+    else:
+        reset_label = {
+            HERE_FOR_THE_BEER_SETUP: "Reset Here For The Beer roster",
+            TEAM_RED_SETUP: "Reset Team Red roster",
+            BLANK_SETUP: "Clear roster and start over",
+        }[active_setup]
+    st.button(
+        reset_label,
         width="stretch",
         disabled=interaction_locked,
         help=(
@@ -888,9 +1174,8 @@ else:
             if interaction_locked
             else None
         ),
-    ):
-        st.session_state.confirm_reset = True
-        st.rerun()
+        on_click=begin_roster_reset,
+    )
 
 details_roster = list(display_roster)
 if st.session_state.pending_new_player is not None:
@@ -906,11 +1191,16 @@ for index, record in enumerate(details_roster):
     ) or "No positions yet"
     availability_label = "Available" if record.get("available") else "Out"
     problem_marker = "⚠ " if player_id in player_problems else ""
-    card_label = (
-        f"{problem_marker}{display_name} · {record.get('gender')} · "
-        f"{availability_label} · "
-        f"{preference_summary}"
-    )
+    if active_setup == TEAM_RED_SETUP:
+        card_label = (
+            f"{problem_marker}{display_name} · {availability_label} · "
+            f"{preference_summary}"
+        )
+    else:
+        card_label = (
+            f"{problem_marker}{display_name} · {record.get('gender')} · "
+            f"{availability_label} · {preference_summary}"
+        )
 
     is_editing = editing_player_id == player_id
     is_confirming_remove = pending_remove_player_id == player_id
@@ -925,7 +1215,11 @@ for index, record in enumerate(details_roster):
         if is_editing:
             st.caption("Draft changes are applied only when you save.")
             name_key = f"draft-name-{player_id}"
-            gender_key = f"draft-gender-{player_id}"
+            gender_key = (
+                None
+                if active_setup == TEAM_RED_SETUP
+                else f"draft-gender-{player_id}"
+            )
             preferences_key = f"draft-preferences-{player_id}"
             with st.form(f"edit-player-{player_id}", clear_on_submit=False):
                 st.text_input(
@@ -933,13 +1227,14 @@ for index, record in enumerate(details_roster):
                     value=str(record.get("name", "")),
                     key=name_key,
                 )
-                st.selectbox(
-                    "Gender",
-                    options=["Woman", "Man"],
-                    index=0 if record.get("gender") == "Woman" else 1,
-                    key=gender_key,
-                    width="stretch",
-                )
+                if gender_key is not None:
+                    st.selectbox(
+                        "Gender",
+                        options=["Woman", "Man"],
+                        index=0 if record.get("gender") == "Woman" else 1,
+                        key=gender_key,
+                        width="stretch",
+                    )
                 st.pills(
                     "Position preferences",
                     options=list(POSITIONS),

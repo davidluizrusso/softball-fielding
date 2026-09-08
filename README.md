@@ -15,6 +15,12 @@ Optimization supports up to 15 available players per game.
 - [Here For The Beer](https://here-for-the-beer.streamlit.app/) — existing
   public team deployment. This address remains supported for current users.
 
+The neutral deployment begins with an explicit choice: load Here For The Beer,
+load Team Red, or start with an empty roster. Team Red loads its approved
+13-player roster under locked Open rules and does not collect gender. Changing
+setups requires confirmation and replaces only the current browser session;
+it never modifies another team or another visitor's session.
+
 ## Run locally
 
 ```bash
@@ -22,6 +28,10 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/streamlit run app.py
 ```
+
+Use `.venv/bin/streamlit run neutral_app.py` to exercise the first-load team
+chooser locally. Direct `app.py` startup preserves the existing Here For The
+Beer experience.
 
 Run the automated tests with:
 

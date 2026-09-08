@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test";
 import { existsSync } from "node:fs";
 
 const baseURL = "http://127.0.0.1:8517";
+const neutralBaseURL = "http://127.0.0.1:8518";
 const virtualenvPython = process.platform === "win32"
   ? ".venv\\Scripts\\python.exe"
   : ".venv/bin/python";
@@ -29,17 +30,30 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  webServer: {
-    command:
-      `${python} -m streamlit run app.py --server.headless=true `
-      + "--server.address=127.0.0.1 --server.port=8517 "
-      + "--browser.gatherUsageStats=false",
-    url: `${baseURL}/_stcore/health`,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-    stdout: "pipe",
-    stderr: "pipe",
-  },
+  webServer: [
+    {
+      command:
+        `${python} -m streamlit run app.py --server.headless=true `
+        + "--server.address=127.0.0.1 --server.port=8517 "
+        + "--browser.gatherUsageStats=false",
+      url: `${baseURL}/_stcore/health`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+    {
+      command:
+        `${python} -m streamlit run neutral_app.py --server.headless=true `
+        + "--server.address=127.0.0.1 --server.port=8518 "
+        + "--browser.gatherUsageStats=false",
+      url: `${neutralBaseURL}/_stcore/health`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  ],
   projects: [
     {
       name: "mobile-touch",

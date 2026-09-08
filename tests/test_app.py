@@ -13,6 +13,7 @@ from softball_fielding.models import (
     POSITIONS,
     ScheduleResult,
 )
+from softball_fielding.roster_templates import team_red_roster
 
 APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
 NEUTRAL_APP_PATH = Path(__file__).resolve().parents[1] / "neutral_app.py"
@@ -81,7 +82,19 @@ def set_available_player_ids(app, player_ids):
     app.run(timeout=20)
 
 
-def test_neutral_deployment_entrypoint_runs_canonical_app(monkeypatch, tmp_path):
+def choose_neutral_setup(app, setup_key):
+    element_with_key(app.radio, "setup-choice").set_value(setup_key).run(
+        timeout=20
+    )
+    next(button for button in app.button if button.label == "Continue").click().run(
+        timeout=20
+    )
+    return app
+
+
+def test_neutral_deployment_requires_setup_without_roster_leak(
+    monkeypatch, tmp_path
+):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
     monkeypatch.chdir(tmp_path)
@@ -90,21 +103,268 @@ def test_neutral_deployment_entrypoint_runs_canonical_app(monkeypatch, tmp_path)
 
     assert not app.exception
     assert app.title[0].value == "🥎 Softball Fielding Optimizer"
-    profile = element_with_key(app.selectbox, "league-profile")
-    assert profile.label == "League rules"
-    assert profile.value == "coed"
-    assert profile.options == [
-        "Co-ed",
-        "Open (no gender fielding minimums)",
+    setup_choice = element_with_key(app.radio, "setup-choice")
+    assert setup_choice.label == "Starting setup"
+    assert setup_choice.value is None
+    assert setup_choice.options == [
+        "Here For The Beer",
+        "Team Red",
+        "Start blank",
     ]
-    assert len(app.session_state["roster"]) == 15
+    assert next(
+        button for button in app.button if button.label == "Continue"
+    ).disabled
+    assert not app.checkbox
+    assert not app.selectbox
+    assert not any(
+        button.label.startswith(("Optimize", "＋ Add", "Reset"))
+        for button in app.button
+    )
+    assert not any(
+        name in str(element.value)
+        for name in ("Dung", "David R", "Kevin", "Heather")
+        for element in [*app.markdown, *app.caption, *app.info]
+    )
+    assert "roster" not in app.session_state.filtered_state
 
-    profile.set_value("open").run(timeout=20)
+
+@pytest.mark.parametrize(
+    ("setup_key", "expected_count", "expected_profile"),
+    [
+        ("here-for-the-beer", 15, "coed"),
+        ("team-red", 13, "open"),
+        ("blank", 0, "coed"),
+    ],
+)
+def test_neutral_startup_paths_load_only_the_selected_setup(
+    monkeypatch,
+    setup_key,
+    expected_count,
+    expected_profile,
+):
+    optimizer = Mock(side_effect=fake_result)
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    app = choose_neutral_setup(
+        AppTest.from_file(NEUTRAL_APP_PATH).run(timeout=20),
+        setup_key,
+    )
 
     assert not app.exception
-    assert app.title[0].value == "🥎 Softball Fielding Optimizer"
-    assert element_with_key(app.selectbox, "league-profile").value == "open"
-    assert len(app.session_state["roster"]) == 15
+    assert app.session_state["active_setup"] == setup_key
+    assert len(app.session_state["roster"]) == expected_count
+    assert app.session_state["league-profile"] == expected_profile
+    assert any(
+        f"Current setup: **" in caption.value for caption in app.caption
+    )
+
+    if setup_key == "team-red":
+        assert not any(
+            selectbox.label == "League rules" for selectbox in app.selectbox
+        )
+        assert any("League rules: **Open" in info.value for info in app.info)
+        assert {record["gender"] for record in app.session_state["roster"]} == {
+            "Unspecified"
+        }
+        assert all(record["available"] for record in app.session_state["roster"])
+        assert not any(
+            "Unspecified" in expander.label for expander in app.expander
+        )
+    elif setup_key == "blank":
+        assert any("Roster is empty" in info.value for info in app.info)
+        assert any(
+            button.label == "＋ Add first player" for button in app.button
+        )
+        assert not app.checkbox
+    else:
+        assert element_with_key(app.selectbox, "league-profile").value == "coed"
+
+
+def test_team_red_hides_gender_and_optimizes_under_locked_open_rules(monkeypatch):
+    optimizer = Mock(side_effect=fake_result)
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    app = choose_neutral_setup(
+        AppTest.from_file(NEUTRAL_APP_PATH).run(timeout=20),
+        "team-red",
+    )
+
+    assert any(item.value == "**Players**" for item in app.markdown)
+    assert not any(
+        item.value in {"**Women**", "**Men**"} for item in app.markdown
+    )
+    david_id = next(
+        record["id"]
+        for record in app.session_state["roster"]
+        if record["name"] == "David R"
+    )
+    next(
+        button for button in app.button if button.label == "Edit David R"
+    ).click().run(timeout=20)
+    assert not any(selectbox.label == "Gender" for selectbox in app.selectbox)
+    element_with_key_prefix(
+        app.get("button_group"), f"draft-preferences-{david_id}"
+    ).set_value(["2B", "SS"])
+    next(button for button in app.button if button.label == "Save changes").click().run(
+        timeout=20
+    )
+    david = next(
+        record
+        for record in app.session_state["roster"]
+        if record["id"] == david_id
+    )
+    assert david["gender"] == "Unspecified"
+    assert david["preferences"] == {"2B", "SS"}
+
+    next(button for button in app.button if button.label == "＋ Add player").click().run(
+        timeout=20
+    )
+    added = app.session_state["pending_new_player"]
+    assert added["gender"] == "Unspecified"
+    assert not any(selectbox.label == "Gender" for selectbox in app.selectbox)
+    element_with_key_prefix(app.text_input, f"draft-name-{added['id']}").set_value(
+        "Taylor"
+    )
+    element_with_key_prefix(
+        app.get("button_group"), f"draft-preferences-{added['id']}"
+    ).set_value(["C", "RF"])
+    next(button for button in app.button if button.label == "Save changes").click().run(
+        timeout=20
+    )
+    assert next(
+        record
+        for record in app.session_state["roster"]
+        if record["name"] == "Taylor"
+    )["gender"] == "Unspecified"
+
+    next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    ).click().run(timeout=20)
+    assert optimizer.call_args.kwargs["profile"] == OPEN_RULES
+    assert all(
+        candidate.gender == "Unspecified"
+        for candidate in optimizer.call_args.args[0]
+    )
+    assert app.session_state["result"] is not None
+
+    next(
+        button for button in app.button if button.label == "Reset Team Red roster"
+    ).click().run(timeout=20)
+    next(button for button in app.button if button.label == "Reset roster").click().run(
+        timeout=20
+    )
+    assert app.session_state["roster"] == team_red_roster()
+    assert app.session_state["league-profile"] == "open"
+    assert app.session_state["next_player_id"] == 14
+    assert app.session_state["result"] is None
+
+
+def test_blank_setup_adds_explicit_gender_and_resets_to_empty(monkeypatch):
+    optimizer = Mock(side_effect=fake_result)
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    app = choose_neutral_setup(
+        AppTest.from_file(NEUTRAL_APP_PATH).run(timeout=20),
+        "blank",
+    )
+
+    next(
+        button for button in app.button if button.label == "＋ Add first player"
+    ).click().run(timeout=20)
+    added = app.session_state["pending_new_player"]
+    assert added["id"] == "player-1"
+    assert added["gender"] == "Woman"
+    gender = next(selectbox for selectbox in app.selectbox if selectbox.label == "Gender")
+    gender.set_value("Man")
+    element_with_key_prefix(app.text_input, "draft-name-player-1").set_value("Jordan")
+    element_with_key_prefix(
+        app.get("button_group"), "draft-preferences-player-1"
+    ).set_value(["P", "SS"])
+    next(button for button in app.button if button.label == "Save changes").click().run(
+        timeout=20
+    )
+    assert app.session_state["roster"][0]["gender"] == "Man"
+
+    next(
+        button for button in app.button if button.label == "Clear roster and start over"
+    ).click().run(timeout=20)
+    next(button for button in app.button if button.label == "Clear roster").click().run(
+        timeout=20
+    )
+    assert app.session_state["active_setup"] == "blank"
+    assert app.session_state["roster"] == []
+    assert app.session_state["next_player_id"] == 1
+    assert any("Roster is empty" in info.value for info in app.info)
+
+
+def test_neutral_setup_change_cancel_preserves_and_confirm_reinitializes(monkeypatch):
+    optimizer = Mock(side_effect=fake_result)
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    app = choose_neutral_setup(
+        AppTest.from_file(NEUTRAL_APP_PATH).run(timeout=20),
+        "here-for-the-beer",
+    )
+    first_id = app.session_state["roster"][0]["id"]
+    availability_checkbox(app, first_id).set_value(False).run(timeout=20)
+    element_with_key(app.selectbox, "league-profile").set_value("open").run(
+        timeout=20
+    )
+    next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    ).click().run(timeout=20)
+    next(
+        selectbox for selectbox in app.selectbox if selectbox.label == "Lineup view"
+    ).set_value("Full matrix").run(timeout=20)
+    preserved_roster = [
+        {**record, "preferences": set(record["preferences"])}
+        for record in app.session_state["roster"]
+    ]
+    preserved_result = app.session_state["result"]
+    preserved_fingerprint = app.session_state["result_fingerprint"]
+
+    next(
+        button for button in app.button if button.label == "Change roster setup"
+    ).click().run(timeout=20)
+    assert not app.checkbox
+    assert not any(
+        button.label == "Optimize seven innings" for button in app.button
+    )
+    pending_target = element_with_key(app.radio, "pending-setup-target")
+    assert pending_target.value is None
+    pending_target.set_value("team-red").run(timeout=20)
+    assert any("Switch to Team Red?" in warning.value for warning in app.warning)
+    next(
+        button for button in app.button if button.label == "Keep Here For The Beer"
+    ).click().run(timeout=20)
+
+    assert app.session_state["active_setup"] == "here-for-the-beer"
+    assert app.session_state["roster"] == preserved_roster
+    assert app.session_state["result"] == preserved_result
+    assert app.session_state["result_fingerprint"] == preserved_fingerprint
+    assert app.session_state["league-profile"] == "open"
+    assert app.session_state["lineup-view"] == "Full matrix"
+    assert not availability_checkbox(app, first_id).value
+
+    next(
+        button for button in app.button if button.label == "Change roster setup"
+    ).click().run(timeout=20)
+    element_with_key(app.radio, "pending-setup-target").set_value("team-red").run(
+        timeout=20
+    )
+    next(
+        button
+        for button in app.button
+        if button.label == "Discard changes and switch to Team Red"
+    ).click().run(timeout=20)
+
+    expected = team_red_roster()
+    assert app.session_state["active_setup"] == "team-red"
+    assert app.session_state["roster"] == expected
+    assert app.session_state["league-profile"] == "open"
+    assert app.session_state["next_player_id"] == 14
+    assert availability_checkbox(app, "player-1").value
+    assert app.session_state["result"] is None
+    assert "result_fingerprint" not in app.session_state.filtered_state
+    assert "lineup-view" not in app.session_state.filtered_state
+    assert "pending-setup-target" not in app.session_state.filtered_state
+
 
 
 def test_app_loads_csv_defaults_and_optimizes(monkeypatch):

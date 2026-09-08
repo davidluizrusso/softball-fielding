@@ -9,13 +9,30 @@ than two positions when possible.
 ## Inputs
 
 - Roster name, entered in a player card
-- Gender (`Woman` or `Man`)
+- Gender (`Woman` or `Man`) for rosters that may use Co-ed rules; Team Red
+  stores `Unspecified` and does not display or collect gender
 - League rules profile (`Co-ed` or `Open`)
 - Availability for the game, toggled from a tap-friendly player list
 - Explicit positional preferences, selected from wrapping position buttons
 
 The initial names, genders, and preferences come from `roster_positions.csv`.
 All players default to available when the file has no availability column.
+
+## Roster setups
+
+The legacy entrypoint opens directly with the Here For The Beer CSV roster and
+Co-ed as its default profile. The neutral entrypoint blocks all roster controls
+until the user explicitly chooses Here For The Beer, Team Red, or an empty
+roster. Team Red loads the approved `team_red_roster.csv`, makes all players
+available, and locks the profile to Open. An empty setup keeps the league
+profile selectable and collects gender for newly added players.
+
+Only one setup exists in a browser session. A setup change requires destructive
+confirmation and atomically clears roster edits, availability widgets, open
+drafts, results, errors, fingerprints, timing, and lineup-view state before the
+new setup is loaded. Canceling the confirmation preserves those values. Reset
+restores the currently active roster template; it never changes teams. No
+account, durable storage, or cross-session team state is implied.
 
 Explicit preferences are first-choice assignments. The optimizer derives a
 larger fallback-eligibility set from the universal hierarchy below, but it
