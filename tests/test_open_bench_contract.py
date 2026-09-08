@@ -3,11 +3,11 @@ from itertools import groupby
 
 import pytest
 
-import softball_fielding.roster_templates as roster_templates
+import softball_fielding.team_setups as roster_templates
 from softball_fielding import LineupError, OPEN_RULES, Player, optimize_game
 from softball_fielding.models import INNINGS, POSITIONS
 from softball_fielding.optimizer import _eligible_positions
-from softball_fielding.roster_templates import team_red_roster
+from softball_fielding.team_setups import team_red_roster
 
 
 TEAM_RED_PREFERENCES = {

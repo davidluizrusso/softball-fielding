@@ -19,7 +19,7 @@ from softball_fielding import (
     optimize_game,
 )
 from softball_fielding.models import INNINGS, POSITIONS
-from softball_fielding.roster_templates import team_red_roster
+from softball_fielding.team_setups import team_red_roster
 
 
 st.set_page_config(

@@ -13,7 +13,7 @@ from softball_fielding.models import (
     POSITIONS,
     ScheduleResult,
 )
-from softball_fielding.roster_templates import team_red_roster
+from softball_fielding.team_setups import team_red_roster
 
 APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
 NEUTRAL_APP_PATH = Path(__file__).resolve().parents[1] / "neutral_app.py"
