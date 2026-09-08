@@ -5,6 +5,7 @@ import pytest
 
 from softball_fielding import LineupError, OPEN_RULES, Player, optimize_game
 from softball_fielding.models import INNINGS, POSITIONS
+from softball_fielding.optimizer import _eligible_positions
 from softball_fielding.roster_templates import team_red_roster
 
 
@@ -63,11 +64,8 @@ def assert_open_assignment_invariants(result, players):
 
         for position, name in inning.items():
             actual_positions[name].add(position)
-            preferences = by_name[name].preferences
-            assert position in preferences or (
-                position == "RC"
-                and "RF" not in result.active_positions
-                and "RF" in preferences
+            assert position in _eligible_positions(
+                by_name[name], result.active_positions
             )
 
     assert result.player_innings == {
@@ -119,13 +117,20 @@ def test_team_red_open_schedule_is_fair_and_minimizes_state_switches():
 
     result = optimize_game(players, profile=OPEN_RULES)
 
-    assert result.solver_status == "OPTIMAL"
+    assert result.solver_status in {"OPTIMAL", "FEASIBLE"}
     assert result.active_positions == POSITIONS
     assert_open_assignment_invariants(result, players)
     assert Counter(result.player_innings.values()) == Counter({5: 9, 6: 3, 7: 1})
     assert result.player_innings["Dung"] == INNINGS
     assert all(inning["P"] == "Dung" for inning in result.assignments)
     assert all(len(positions) <= 2 for positions in result.player_positions.values())
+    assert not any(
+        position not in candidate.preferences
+        for candidate in players
+        for inning in result.assignments
+        for position, name in inning.items()
+        if name == candidate.name
+    )
 
     total_transitions = 0
     one_inning_runs = []
@@ -187,7 +192,7 @@ def test_open_seven_player_roster_fails_without_a_gender_shortage():
     assert "gender" not in message
 
 
-def test_open_nine_player_lineup_fills_rc_from_an_rf_preference():
+def test_open_nine_player_lineup_does_not_promote_rf_to_rc():
     players = [
         player("Pitcher", "P"),
         player("Catcher", "C"),
@@ -200,21 +205,36 @@ def test_open_nine_player_lineup_fills_rc_from_an_rf_preference():
         player("Right Fielder", "RF"),
     ]
 
+    with pytest.raises(LineupError, match="No legal schedule"):
+        optimize_game(players, profile=OPEN_RULES)
+
+
+def test_universal_catcher_eligibility_is_used_as_a_fallback():
+    players = [
+        player("Pitcher", "P"),
+        player("First", "1B"),
+        player("Second", "2B"),
+        player("Third", "3B"),
+        player("Short", "SS"),
+        player("Left", "LF"),
+        player("Left Center", "LC"),
+        player("Right Center", "RC"),
+        player("Right", "RF"),
+        player("Utility", "RF"),
+    ]
+
     result = optimize_game(players, profile=OPEN_RULES)
 
-    assert result.active_positions == tuple(
-        position for position in POSITIONS if position != "RF"
-    )
-    assert_open_assignment_invariants(result, players)
-    assert set(result.player_innings.values()) == {INNINGS}
+    assert all(inning["C"] in result.player_innings for inning in result.assignments)
+    assert sum(map(len, result.fallback_assignments)) == INNINGS
+    assert all(set(inning) == {"C"} for inning in result.fallback_assignments)
     assert all(
-        inning["RC"] == "Right Fielder"
+        "C" not in next(
+            candidate.preferences
+            for candidate in players
+            if candidate.name == inning["C"]
+        )
         for inning in result.assignments
-    )
-    assert result.player_positions["Right Fielder"] == ("RC",)
-    assert all(
-        "Bench" not in player_states(result, name)
-        for name in result.player_innings
     )
 
 

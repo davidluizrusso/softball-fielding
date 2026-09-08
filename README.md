@@ -5,6 +5,7 @@ assignments, balances playing time, and limits positional churn. Select the
 default Co-ed rules or an Open profile with no gender-based fielding minimums.
 The application is team-neutral: different teams can use either rules profile
 in independent browser sessions without replacing one another's game setup.
+Optimization supports up to 15 available players per game.
 
 ## Live deployments
 
@@ -56,16 +57,15 @@ selected position.
 
 The default inning view is a semantic two-column table for screen-reader and
 mobile access. The complete seven-inning matrix remains available on screen and
-as a CSV download.
+as a CSV download. Explicit positions are preferred and hierarchy-derived
+fallback assignments are minimized. A live phase indicator and tiny dancing
+coach remain visible while the solver works.
 
 See [SPEC.md](SPEC.md) for the lineup rules and optimization priorities.
 
-## Technical paper
+## Documentation
 
-The optimization formulation and deployment notes are available as
-[LaTeX source](docs/softball_fielding_optimization.tex) and a
-[compiled PDF](docs/softball_fielding_optimization.pdf).
-
-The lineup rules are also memorialized in the substantially more ominous
-[Defensive Lineup Compliance Code](docs/defensive_lineup_compliance_code.pdf),
-with its corresponding [LaTeX source](docs/defensive_lineup_compliance_code.tex).
+[SPEC.md](SPEC.md) is the current normative description. The older papers in
+`docs/` are retained only as historical pre-hierarchy examples and do not
+describe the current optimizer. A new Open-rules paper will replace them as the
+linked technical reference after its formulation and compiled PDF pass review.

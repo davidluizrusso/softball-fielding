@@ -2,7 +2,9 @@ from collections import Counter
 from itertools import groupby
 
 import pytest
+from ortools.sat.python import cp_model
 
+import softball_fielding.optimizer as optimizer_module
 from softball_fielding import (
     LineupError,
     OPEN_RULES,
@@ -11,18 +13,227 @@ from softball_fielding import (
     lineup_shortages,
     optimize_game,
 )
-from softball_fielding.models import INFIELD, OUTFIELD, POSITIONS
-from softball_fielding.optimizer import _eligible_positions
+from softball_fielding.models import INFIELD, INNINGS, OUTFIELD, POSITIONS
+from softball_fielding.optimizer import _eligible_positions, _fallback_positions
 
 
 def player(name, gender, *preferences):
     return Player(name, gender, frozenset(preferences))
 
 
+def preference_continuity_trade_players(*, promote_third_fallback=False):
+    players = [
+        player("Middle Flex", "Man", "2B", "3B", "SS"),
+        player("Short Specialist", "Man", "SS"),
+        player("Third Specialist", "Man", "3B"),
+        player("Second Specialist", "Man", "2B"),
+        player("Battery Flex", "Man", "P", "1B"),
+        player("Pitcher", "Man", "P"),
+        player("Battery Utility", "Man", "P", "1B"),
+        player("First Specialist", "Man", "1B"),
+        player("Left", "Man", "LF"),
+        player("Left Center", "Man", "LC"),
+        player("Left Right Center Flex", "Man", "LF", "RC"),
+        player("Left Center Right Flex", "Man", "LC", "RF"),
+        player("Right Side Flex", "Man", "RC", "RF"),
+    ]
+    if promote_third_fallback:
+        return [
+            (
+                player(candidate.name, candidate.gender, "2B", "3B")
+                if candidate.name == "Third Specialist"
+                else candidate
+            )
+            for candidate in players
+        ]
+    return players
+
+
 def test_eligible_positions_follow_canonical_lineup_order():
     candidate = player("Order Guard", "Woman", "RF", "P", "SS")
 
-    assert _eligible_positions(candidate, POSITIONS) == ("P", "SS", "RF")
+    assert _eligible_positions(candidate, POSITIONS) == (
+        "P",
+        "C",
+        "2B",
+        "3B",
+        "SS",
+        "RF",
+    )
+    assert candidate.preferences == frozenset(("P", "SS", "RF"))
+    assert _fallback_positions(candidate, POSITIONS) == ("C", "2B", "3B")
+
+
+@pytest.mark.parametrize(
+    ("preference", "expected"),
+    [
+        ("P", ("P", "C")),
+        ("C", ("C",)),
+        ("1B", ("C", "1B")),
+        ("2B", ("C", "2B")),
+        ("3B", ("C", "2B", "3B")),
+        ("SS", ("C", "2B", "3B", "SS")),
+        ("LF", ("C", "LF", "RC", "RF")),
+        ("LC", ("C", "LF", "LC", "RC", "RF")),
+        ("RC", ("C", "RC", "RF")),
+        ("RF", ("C", "RF")),
+    ],
+)
+def test_position_hierarchy_expands_only_in_the_approved_direction(
+    preference, expected
+):
+    candidate = player("Hierarchy Guard", "Man", preference)
+
+    assert _eligible_positions(candidate, POSITIONS) == expected
+    assert candidate.preferences == frozenset((preference,))
+
+
+def test_pitcher_and_first_base_are_never_inferred():
+    candidate = player("No Specialist Guessing", "Woman", "SS", "LC")
+
+    eligibility = _eligible_positions(candidate, POSITIONS)
+
+    assert "P" not in eligibility
+    assert "1B" not in eligibility
+    assert "C" in eligibility
+
+
+def test_preference_cost_aware_symmetry_preserves_zero_fallback_solution():
+    players = [
+        player("Wide", "Man", "LF", "RC", "RF"),
+        player("Left", "Man", "LF"),
+        player("Pitcher", "Man", "P"),
+        player("Catcher", "Man", "C"),
+        player("First", "Man", "1B"),
+        player("Second", "Man", "2B"),
+        player("Third", "Man", "3B"),
+        player("Short", "Man", "SS"),
+        player("Left Center", "Man", "LC"),
+        player("Right Center", "Man", "RC"),
+    ]
+
+    for ordered_players in (players, list(reversed(players))):
+        result = optimize_game(ordered_players, profile=OPEN_RULES)
+
+        assert sum(map(len, result.fallback_assignments)) == 0
+        assert all(inning["LF"] == "Left" for inning in result.assignments)
+        assert all(inning["RF"] == "Wide" for inning in result.assignments)
+
+
+def test_unproven_fallback_incumbent_is_frozen_before_continuity(monkeypatch):
+    real_solver = cp_model.CpSolver
+    solve_count = 0
+    fallback_incumbents = []
+    frozen_fallback_domains = []
+    players = preference_continuity_trade_players()
+    fallback_variable_names = {
+        f"inning_{inning}_player_{player_index}_{position}"
+        for inning in range(INNINGS)
+        for player_index, candidate in enumerate(players)
+        for position in _fallback_positions(candidate, POSITIONS)
+    }
+
+    class DowngradedFallbackSolver:
+        def __init__(self):
+            self.delegate = real_solver()
+            self.parameters = self.delegate.parameters
+
+        def Solve(self, model):
+            nonlocal solve_count
+            solve_count += 1
+            if solve_count == 2:
+                self.parameters.num_search_workers = 1
+                self.parameters.stop_after_first_solution = True
+            status = self.delegate.Solve(model)
+            if solve_count == 2:
+                assert status == cp_model.FEASIBLE
+                solution = self.delegate.ResponseProto().solution
+                fallback_incumbents.append(
+                    sum(
+                        solution[index]
+                        for index, variable in enumerate(model.Proto().variables)
+                        if variable.name in fallback_variable_names
+                    )
+                )
+            elif solve_count == 3:
+                model_proto = model.Proto()
+                fallback_indexes = {
+                    index
+                    for index, variable in enumerate(model_proto.variables)
+                    if variable.name in fallback_variable_names
+                }
+                frozen_fallback_domains.extend(
+                    tuple(constraint.linear.domain)
+                    for constraint in model_proto.constraints
+                    if set(constraint.linear.vars) == fallback_indexes
+                    and set(constraint.linear.coeffs) == {1}
+                )
+            return status
+
+        def Value(self, variable):
+            return self.delegate.Value(variable)
+
+        def __getattr__(self, name):
+            return getattr(self.delegate, name)
+
+    monkeypatch.setattr(
+        optimizer_module.cp_model,
+        "CpSolver",
+        DowngradedFallbackSolver,
+    )
+    result = optimize_game(
+        players,
+        profile=OPEN_RULES,
+        max_solve_seconds=15.0,
+    )
+
+    assert fallback_incumbents
+    assert fallback_incumbents[0] > INNINGS
+    assert (
+        fallback_incumbents[0],
+        fallback_incumbents[0],
+    ) in frozen_fallback_domains
+    assert result.solver_status == "FEASIBLE"
+    assert (
+        sum(map(len, result.fallback_assignments))
+        == fallback_incumbents[0]
+    )
+
+
+def test_proven_short_stint_optimum_does_not_reimpose_infeasible_ideal_groups():
+    players = [
+        player("A", "Man", "P"),
+        player("B", "Man", "P", "C"),
+        player("C", "Man", "C", "1B"),
+        player("D", "Man", "1B", "2B"),
+        player("E", "Man", "2B", "3B"),
+        player("F", "Man", "3B", "SS"),
+        player("G", "Man", "SS"),
+        player("Left", "Man", "LF"),
+        player("Left Center", "Man", "LC"),
+        player("Right Center", "Man", "RC"),
+        player("Right", "Man", "RF"),
+    ]
+
+    result = optimize_game(
+        players,
+        profile=OPEN_RULES,
+        max_solve_seconds=10.0,
+    )
+
+    assert_schedule_invariants(result, players, OPEN_RULES)
+    assert_equal_share(result)
+    assert sum(map(len, result.fallback_assignments)) == 0
+
+
+def test_optimizer_rejects_more_than_fifteen_available_players():
+    players = [
+        player(f"Player {index + 1}", "Man", *POSITIONS)
+        for index in range(16)
+    ]
+
+    with pytest.raises(LineupError, match="At most 15 available players"):
+        optimize_game(players, profile=OPEN_RULES)
 
 
 def test_reduced_lineup_orders_rf_substitution_as_rc():
@@ -31,7 +242,22 @@ def test_reduced_lineup_orders_rf_substitution_as_rc():
         position for position in POSITIONS if position not in {"C", "RF"}
     )
 
-    assert _eligible_positions(candidate, reduced_positions) == ("P", "SS", "RC")
+    assert _eligible_positions(candidate, reduced_positions) == (
+        "P",
+        "2B",
+        "3B",
+        "SS",
+        "RC",
+    )
+
+
+def test_nine_player_lineup_does_not_promote_rf_to_rc():
+    candidate = player("Nine Player Guard", "Woman", "RF")
+    nine_player_positions = tuple(
+        position for position in POSITIONS if position != "RF"
+    )
+
+    assert _eligible_positions(candidate, nine_player_positions) == ("C",)
 
 
 def state_sequence(result, player_name):
@@ -104,6 +330,70 @@ def continuity_metrics(result):
     }
 
 
+def test_explicit_preferences_beat_a_strictly_smoother_fallback_schedule():
+    original_players = preference_continuity_trade_players()
+    promoted_players = preference_continuity_trade_players(
+        promote_third_fallback=True
+    )
+
+    assert {
+        candidate.name: _eligible_positions(candidate, POSITIONS)
+        for candidate in original_players
+    } == {
+        candidate.name: _eligible_positions(candidate, POSITIONS)
+        for candidate in promoted_players
+    }
+
+    preferred_result = optimize_game(
+        original_players,
+        profile=OPEN_RULES,
+        max_solve_seconds=15.0,
+    )
+    smoother_result = optimize_game(
+        promoted_players,
+        profile=OPEN_RULES,
+        max_solve_seconds=15.0,
+    )
+
+    assert_equal_share(preferred_result)
+    assert_equal_share(smoother_result)
+    assert preferred_result.solver_status == "OPTIMAL"
+    assert smoother_result.solver_status == "OPTIMAL"
+    assert sum(map(len, preferred_result.fallback_assignments)) == INNINGS
+    assert sum(map(len, smoother_result.fallback_assignments)) == INNINGS
+
+    original_preferences = {
+        candidate.name: candidate.preferences for candidate in original_players
+    }
+    smoother_fallbacks_under_original_preferences = sum(
+        position not in original_preferences[name]
+        for inning in smoother_result.assignments
+        for position, name in inning.items()
+    )
+    assert smoother_fallbacks_under_original_preferences == INNINGS + 2
+
+    preferred_metrics = continuity_metrics(preferred_result)
+    smoother_metrics = continuity_metrics(smoother_result)
+    assert preferred_metrics == {
+        "bench_total": 21,
+        "bench_runs": 13,
+        "one_inning_state_runs": 5,
+        "two_inning_state_runs": 16,
+        "excess_field_positions": 1,
+        "distinct_field_positions": 20,
+        "transitions": 21,
+    }
+    assert smoother_metrics == {
+        "bench_total": 21,
+        "bench_runs": 13,
+        "one_inning_state_runs": 5,
+        "two_inning_state_runs": 14,
+        "excess_field_positions": 0,
+        "distinct_field_positions": 20,
+        "transitions": 20,
+    }
+
+
 def assert_equal_share(result):
     player_count = len(result.player_innings)
     total_slots = len(result.assignments) * result.lineup_size
@@ -134,11 +424,8 @@ def assert_schedule_invariants(result, players, profile):
 
         for position, name in inning.items():
             actual_positions[name].add(position)
-            preferences = by_name[name].preferences
-            assert position in preferences or (
-                position == "RC"
-                and "RF" not in expected_positions
-                and "RF" in preferences
+            assert position in _eligible_positions(
+                by_name[name], expected_positions
             )
 
         assigned = [by_name[name] for name in inning.values()]
@@ -229,11 +516,8 @@ def assert_legal(result, players, minimum_women):
         assert len(set(inning.values())) == result.lineup_size
 
         for position, name in inning.items():
-            preferences = by_name[name].preferences
-            assert position in preferences or (
-                position == "RC"
-                and "RF" not in result.active_positions
-                and "RF" in preferences
+            assert position in _eligible_positions(
+                by_name[name], result.active_positions
             )
 
         assigned = [by_name[name] for name in inning.values()]
@@ -375,42 +659,24 @@ def test_open_eight_player_lineup_preserves_rf_to_rc_alias():
     )
 
 
-def test_open_full_lineup_does_not_fall_back_when_rf_is_uncovered():
+def test_open_full_lineup_infers_rf_from_lc_eligibility():
     preferences = tuple(position for position in POSITIONS if position != "RF")
     players = [
         player(f"M{index}", "Man", *preferences) for index in range(10)
     ]
 
-    with pytest.raises(LineupError, match="RF") as raised:
-        optimize_game(players, profile=OPEN_RULES)
-
-    assert "gender" not in str(raised.value).lower()
-
-
-def test_bench_aware_continuity_keeps_paired_position_runs_together():
-    players = [
-        player(f"{position}-{index}", "Man", position)
-        for position in POSITIONS
-        for index in range(2)
-    ]
-
     result = optimize_game(players, profile=OPEN_RULES)
 
-    assert_schedule_invariants(result, players, OPEN_RULES)
-    assert_equal_share(result)
-    metrics = continuity_metrics(result)
-    assert metrics == {
-        "bench_total": 70,
-        "bench_runs": 20,
-        "one_inning_state_runs": 0,
-        "two_inning_state_runs": 0,
-        "excess_field_positions": 0,
-        "distinct_field_positions": 20,
-        "transitions": 20,
-    }
+    assert all(inning["RF"] in result.player_innings for inning in result.assignments)
+    assert sum(map(len, result.fallback_assignments)) == INNINGS
+    assert all(set(inning) == {"RF"} for inning in result.fallback_assignments)
+    assert all(
+        "RF" in _eligible_positions(candidate, POSITIONS)
+        for candidate in players
+    )
 
 
-def test_nine_players_omit_rf_and_rf_preference_becomes_rc():
+def test_nine_players_omit_rf_without_the_eight_player_rf_exception():
     players = [
         player("W Pitcher", "Woman", "P"),
         player("W Second", "Woman", "2B"),
@@ -420,14 +686,14 @@ def test_nine_players_omit_rf_and_rf_preference_becomes_rc():
         player("Third", "Man", "3B"),
         player("Short", "Man", "SS"),
         player("Left Center", "Man", "LC"),
-        player("Right Fielder", "Man", "RF"),
+        player("Right Center", "Man", "RC"),
     ]
 
     result = optimize_game(players)
 
     assert "RF" not in result.active_positions
     assert "C" in result.active_positions
-    assert all(inning["RC"] == "Right Fielder" for inning in result.assignments)
+    assert all(inning["RC"] == "Right Center" for inning in result.assignments)
     assert_legal(result, players, minimum_women=3)
 
 
@@ -463,7 +729,7 @@ def test_three_women_caps_a_large_roster_at_nine_fielders():
     assert_legal(result, players, minimum_women=3)
 
 
-def test_positional_preferences_are_hard_constraints():
+def test_pitcher_remains_an_explicit_only_hard_constraint():
     players = [
         player(f"W{index}", "Woman", "1B", "2B", "LF", "LC")
         for index in range(4)
@@ -510,7 +776,6 @@ def test_fewer_than_three_women_are_rejected_before_solving():
     ("women_preferences", "missing_group"),
     [
         (("P", "1B", "2B"), "outfield"),
-        (("LF", "LC", "RC"), "infield"),
     ],
 )
 def test_women_must_cover_infield_and_outfield(women_preferences, missing_group):

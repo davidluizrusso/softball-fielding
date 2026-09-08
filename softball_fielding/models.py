@@ -19,6 +19,7 @@ POSITIONS: Tuple[str, ...] = (
 INFIELD: FrozenSet[str] = frozenset(("P", "C", "1B", "2B", "3B", "SS"))
 OUTFIELD: FrozenSet[str] = frozenset(("LF", "LC", "RC", "RF"))
 INNINGS = 7
+MAX_AVAILABLE_PLAYERS = 15
 
 
 @dataclass(frozen=True)
@@ -124,6 +125,7 @@ class ScheduleResult:
     player_innings: Dict[str, int]
     player_positions: Dict[str, Tuple[str, ...]]
     solver_status: str
+    fallback_assignments: Tuple[Dict[str, str], ...] = ()
 
     @property
     def lineup_size(self) -> int:

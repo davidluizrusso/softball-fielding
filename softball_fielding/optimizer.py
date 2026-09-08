@@ -2,7 +2,7 @@
 
 from collections import Counter
 from time import monotonic
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from ortools.sat.python import cp_model
 
@@ -10,6 +10,7 @@ from .models import (
     COED_RULES,
     INFIELD,
     INNINGS,
+    MAX_AVAILABLE_PLAYERS,
     OUTFIELD,
     POSITIONS,
     LeagueRules,
@@ -19,6 +20,26 @@ from .models import (
 )
 
 BENCH_STATE = "Bench"
+
+POSITION_FALLBACKS = {
+    "SS": ("3B", "2B"),
+    "3B": ("2B",),
+    "LC": ("LF", "RC", "RF"),
+    "LF": ("RC", "RF"),
+    "RC": ("RF",),
+}
+
+FAIRNESS_PROGRESS = "Checking the fairest possible playing time…"
+PREFERENCE_PROGRESS = "Preferring selected positions over fallback eligibility…"
+STINT_PROGRESS = "Keeping field and Bench assignments in longer blocks…"
+CONSISTENCY_PROGRESS = "Reducing position changes…"
+
+
+def _report_progress(
+    callback: Optional[Callable[[str], None]], message: str
+) -> None:
+    if callback is not None:
+        callback(message)
 
 
 class LineupError(ValueError):
@@ -34,6 +55,11 @@ def lineup_shortages(
 
     rules = resolve_league_rules(profile)
     shortages = []
+    if player_count > MAX_AVAILABLE_PLAYERS:
+        shortages.append(
+            f"At most {MAX_AVAILABLE_PLAYERS} available players are supported; "
+            f"{player_count} are available."
+        )
     if player_count < 8:
         shortages.append(
             f"At least 8 available players are required; only {player_count} "
@@ -89,15 +115,36 @@ def _lineup_rules(
 def _eligible_positions(
     player: Player, active_positions: Sequence[str]
 ) -> Tuple[str, ...]:
-    preferences = set(player.preferences)
-    if "RF" not in active_positions and "RF" in preferences:
-        preferences.add("RC")
+    eligibility = set(player.preferences)
+    eligibility.add("C")
+    for preferred_position in player.preferences:
+        eligibility.update(POSITION_FALLBACKS.get(preferred_position, ()))
+    is_eight_player_lineup = "C" not in active_positions and "RF" not in active_positions
+    if is_eight_player_lineup and "RF" in player.preferences:
+        eligibility.add("RC")
     return tuple(
-        position for position in active_positions if position in preferences
+        position for position in active_positions if position in eligibility
+    )
+
+
+def _fallback_positions(
+    player: Player, active_positions: Sequence[str]
+) -> Tuple[str, ...]:
+    """Return eligible positions the player did not explicitly prefer."""
+
+    return tuple(
+        position
+        for position in _eligible_positions(player, active_positions)
+        if position not in player.preferences
     )
 
 
 def _validate_players(players: Sequence[Player]) -> None:
+    if len(players) > MAX_AVAILABLE_PLAYERS:
+        raise LineupError(
+            f"At most {MAX_AVAILABLE_PLAYERS} available players are supported; "
+            f"{len(players)} were provided."
+        )
     duplicate_names = sorted(
         name for name, count in Counter(player.name for player in players).items()
         if count > 1
@@ -123,7 +170,7 @@ def _preflight_preferences(
     ]
     if uncovered:
         raise LineupError(
-            "No available player prefers the following required position(s): "
+            "No available player is eligible for the following required position(s): "
             + ", ".join(uncovered)
             + "."
         )
@@ -148,7 +195,7 @@ def _preflight_preferences(
         missing_groups.append("outfield")
     if missing_groups:
         raise LineupError(
-            "At least one available woman must prefer an active "
+            "At least one available woman must be eligible for an active "
             + " and ".join(missing_groups)
             + " position."
         )
@@ -159,6 +206,8 @@ def optimize_game(
     *,
     profile: LeagueRules = COED_RULES,
     max_solve_seconds: float = 5.0,
+    fairness_solve_seconds: Optional[float] = None,
+    progress_callback: Optional[Callable[[str], None]] = None,
 ) -> ScheduleResult:
     """Build the fairest legal seven-inning schedule for available players."""
 
@@ -168,6 +217,10 @@ def optimize_game(
     active_positions, minimum_women = _lineup_rules(player_list, rules)
     eligibility = {
         index: _eligible_positions(player, active_positions)
+        for index, player in enumerate(player_list)
+    }
+    fallback_eligibility = {
+        index: _fallback_positions(player, active_positions)
         for index, player in enumerate(player_list)
     }
     _preflight_preferences(player_list, active_positions, eligibility, rules)
@@ -237,7 +290,9 @@ def optimize_game(
     # Players with identical gender and eligibility are interchangeable in the
     # mathematical model. Canonically ordering their complete state sequences
     # removes name-permutation symmetry without excluding a distinct schedule.
-    equivalent_players: Dict[Tuple[bool, Tuple[str, ...]], List[int]] = {}
+    equivalent_players: Dict[
+        Tuple[bool, Tuple[str, ...], Tuple[str, ...]], List[int]
+    ] = {}
     for player_index, player in enumerate(player_list):
         equivalence_key = (
             player.is_woman,
@@ -245,6 +300,11 @@ def optimize_game(
                 position
                 for position in active_positions
                 if position in eligibility[player_index]
+            ),
+            tuple(
+                position
+                for position in active_positions
+                if position in player.preferences
             ),
         )
         equivalent_players.setdefault(equivalence_key, []).append(player_index)
@@ -298,6 +358,13 @@ def optimize_game(
             )
         )
         innings_played.append(count)
+
+    fallback_assignment_variables = [
+        assignments[(inning, player_index, position)]
+        for inning in range(INNINGS)
+        for player_index in range(len(player_list))
+        for position in fallback_eligibility[player_index]
+    ]
 
     maximum_innings = model.NewIntVar(0, INNINGS, "maximum_innings")
     minimum_innings = model.NewIntVar(0, INNINGS, "minimum_innings")
@@ -479,24 +546,69 @@ def optimize_game(
     model.Minimize(fairness_objective)
 
     started_at = monotonic()
-    fairness_solver = cp_model.CpSolver()
-    fairness_solver.parameters.max_time_in_seconds = min(
-        1.0, max(0.1, max_solve_seconds * 0.25)
+    _report_progress(progress_callback, FAIRNESS_PROGRESS)
+    fairness_budget = min(
+        max_solve_seconds,
+        max(
+            0.1,
+            fairness_solve_seconds
+            if fairness_solve_seconds is not None
+            else min(2.0, max_solve_seconds * 0.4),
+        ),
     )
-    fairness_solver.parameters.num_search_workers = 8
-    fairness_solver.parameters.random_seed = 42
-    fairness_status = fairness_solver.Solve(model)
+
+    # First try the arithmetic lower bound: every player receives either the
+    # floor or ceiling of an equal share. Any feasible schedule in this slice
+    # certifies both the minimum spread and the minimum scaled L1 deviation.
+    equal_share_floor, equal_share_remainder = divmod(total_slots, player_count)
+    equal_share_ceiling = equal_share_floor + bool(equal_share_remainder)
+    ideal_fairness_model = model.clone()
+    for count in innings_played:
+        ideal_fairness_model.Add(count >= equal_share_floor)
+        ideal_fairness_model.Add(count <= equal_share_ceiling)
+    ideal_fairness_model.Minimize(0)
+    ideal_fairness_solver = cp_model.CpSolver()
+    ideal_fairness_solver.parameters.max_time_in_seconds = min(
+        0.75, max(0.1, fairness_budget * 0.35)
+    )
+    ideal_fairness_solver.parameters.num_search_workers = 8
+    ideal_fairness_solver.parameters.random_seed = 42
+    ideal_fairness_status = ideal_fairness_solver.Solve(ideal_fairness_model)
+
+    if ideal_fairness_status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        fairness_solver = ideal_fairness_solver
+        fairness_status = ideal_fairness_status
+        fairness_proven = True
+    else:
+        fairness_solver = cp_model.CpSolver()
+        fairness_solver.parameters.max_time_in_seconds = max(
+            0.1, fairness_budget - (monotonic() - started_at)
+        )
+        fairness_solver.parameters.num_search_workers = 8
+        fairness_solver.parameters.random_seed = 42
+        fairness_status = fairness_solver.Solve(model)
+        fairness_proven = fairness_status == cp_model.OPTIMAL
 
     if fairness_status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         if fairness_status == cp_model.INFEASIBLE:
             raise LineupError(
-                "No legal schedule can satisfy all positional preferences and "
-                "league rules. Try adding preferences or changing availability."
+                "No legal schedule can satisfy the derived position eligibility "
+                "and league rules. Try adding preferences or changing availability."
             )
         raise LineupError(
             "The optimizer could not find a schedule within the time limit. "
             "Please try again."
         )
+
+    _report_progress(
+        progress_callback,
+        (
+            "Fairest playing-time balance proven. Checking preferred positions…"
+            if fairness_proven
+            else "Best playing-time balance found within the time limit. "
+            "Checking preferred positions…"
+        ),
+    )
 
     best_spread = fairness_solver.Value(playing_time_spread)
     best_deviation = sum(fairness_solver.Value(item) for item in deviations)
@@ -505,6 +617,52 @@ def optimize_game(
     for variable in (*assignments.values(), *bench_assignments.values()):
         model.AddHint(variable, fairness_solver.Value(variable))
 
+    # Explicit preferences outrank every continuity objective. Hierarchy-derived
+    # positions are legal fallbacks, but all such fallbacks currently have the
+    # same cost; the model does not invent a comfort ranking among them.
+    fallback_objective = sum(fallback_assignment_variables)
+    fairness_fallback_count = sum(
+        fairness_solver.Value(variable)
+        for variable in fallback_assignment_variables
+    )
+    if fairness_fallback_count == 0:
+        fallback_solver = fairness_solver
+        fallback_status = fairness_status
+        best_fallback_count = 0
+        fallback_proven = True
+    else:
+        _report_progress(progress_callback, PREFERENCE_PROGRESS)
+        model.Minimize(fallback_objective)
+        fallback_solver = cp_model.CpSolver()
+        fallback_solver.parameters.max_time_in_seconds = min(
+            1.0,
+            max(0.1, (max_solve_seconds - (monotonic() - started_at)) * 0.25),
+        )
+        fallback_solver.parameters.num_search_workers = 8
+        fallback_solver.parameters.random_seed = 42
+        fallback_status = fallback_solver.Solve(model)
+        if fallback_status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            raise LineupError(
+                "The optimizer could not minimize fallback assignments within "
+                "the time limit. Please try again."
+            )
+        best_fallback_count = sum(
+            fallback_solver.Value(variable)
+            for variable in fallback_assignment_variables
+        )
+        fallback_proven = (
+            fallback_status == cp_model.OPTIMAL or best_fallback_count == 0
+        )
+
+    # Even when the phase times out without a proof, preserve the exact
+    # incumbent count so lower-priority continuity terms cannot spend more
+    # fallback innings. The overall result remains truthfully FEASIBLE.
+    model.Add(fallback_objective == best_fallback_count)
+    model.clear_hints()
+    for variable in (*assignments.values(), *bench_assignments.values()):
+        model.AddHint(variable, fallback_solver.Value(variable))
+
+    _report_progress(progress_callback, STINT_PROGRESS)
     # First ask a cloned model for the ideal lower bound: the only one-inning
     # states are those forced by a player receiving exactly one field or Bench
     # inning. Feasibility is substantially easier to establish than proving a
@@ -530,8 +688,10 @@ def optimize_game(
         best_one_inning = sum(
             ideal_stints_solver.Value(item) for item in one_inning_stints
         )
+        ideal_stints_feasible = True
         one_inning_proven = True
     else:
+        ideal_stints_feasible = False
         model.Minimize(sum(one_inning_stints))
         one_inning_solver = cp_model.CpSolver()
         one_inning_solver.parameters.max_time_in_seconds = min(
@@ -560,15 +720,18 @@ def optimize_game(
             "time limit. Please try again."
         )
 
-    if one_inning_proven:
+    if ideal_stints_feasible:
         for stint_variables, unavoidable_singleton in ideal_one_inning_groups:
             model.Add(sum(stint_variables) == unavoidable_singleton)
+    elif one_inning_proven:
+        model.Add(sum(one_inning_stints) == best_one_inning)
     else:
-        # Preserve the best short-stint result already found while allowing a
-        # later stage to improve it. A merely feasible incumbent is still a
-        # valid upper bound and should not prevent us from securing the next
-        # continuity goal.
-        model.Add(sum(one_inning_stints) <= best_one_inning)
+        # Freeze the achieved higher-priority incumbent. Allowing a smaller
+        # count here would let the next excess-position phase select its own
+        # lower-priority slice before the short-stint improvement is secured.
+        # The overall result remains truthfully FEASIBLE because this count
+        # has not been proven minimal.
+        model.Add(sum(one_inning_stints) == best_one_inning)
     model.clear_hints()
     for variable in (*assignments.values(), *bench_assignments.values()):
         model.AddHint(variable, one_inning_solver.Value(variable))
@@ -623,6 +786,7 @@ def optimize_game(
         for variable in (*assignments.values(), *bench_assignments.values()):
             model.AddHint(variable, excess_solver.Value(variable))
 
+    _report_progress(progress_callback, CONSISTENCY_PROGRESS)
     model.Minimize(consistency_penalty)
 
     solver = cp_model.CpSolver()
@@ -638,8 +802,8 @@ def optimize_game(
         solution_status = final_status
     elif final_status == cp_model.INFEASIBLE:
         raise LineupError(
-            "No legal schedule can satisfy all positional preferences and "
-            "league rules. Try adding preferences or changing availability."
+            "No legal schedule can satisfy the derived position eligibility "
+            "and league rules. Try adding preferences or changing availability."
         )
 
     solved_assignments = []
@@ -667,11 +831,29 @@ def optimize_game(
         )
         for player in player_list
     }
+    solved_fallback_assignments = tuple(
+        {
+            position: player.name
+            for position, player_name in inning_assignment.items()
+            for player_index, player in enumerate(player_list)
+            if player.name == player_name
+            and position in fallback_eligibility[player_index]
+        }
+        for inning_assignment in solved_assignments
+    )
+    all_priorities_proven = (
+        fairness_proven
+        and fallback_proven
+        and one_inning_proven
+        and excess_proven
+        and final_status == cp_model.OPTIMAL
+    )
 
     return ScheduleResult(
         assignments=tuple(solved_assignments),
         active_positions=active_positions,
         player_innings=player_innings,
         player_positions=player_positions,
-        solver_status=solution_solver.StatusName(solution_status),
+        solver_status="OPTIMAL" if all_priorities_proven else "FEASIBLE",
+        fallback_assignments=solved_fallback_assignments,
     )

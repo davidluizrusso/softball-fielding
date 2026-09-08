@@ -18,7 +18,10 @@ APP_PATH = Path(__file__).resolve().parents[1] / "app.py"
 NEUTRAL_APP_PATH = Path(__file__).resolve().parents[1] / "neutral_app.py"
 
 
-def fake_result(players, *, profile=COED_RULES):
+def fake_result(players, *, profile=COED_RULES, progress_callback=None):
+    if progress_callback is not None:
+        progress_callback("Checking the fairest possible playing time…")
+        progress_callback("Reducing position changes…")
     active_positions, _minimum_women = softball_fielding.lineup_plan(
         len(players),
         sum(candidate.is_woman for candidate in players),
@@ -146,7 +149,8 @@ def test_app_loads_csv_defaults_and_optimizes(monkeypatch):
     optimized_players = optimizer.call_args.args[0]
     assert len(optimized_players) == 15
     assert sum(candidate.is_woman for candidate in optimized_players) == 5
-    assert optimizer.call_args.kwargs == {"profile": COED_RULES}
+    assert optimizer.call_args.kwargs["profile"] == COED_RULES
+    assert callable(optimizer.call_args.kwargs["progress_callback"])
     assert any(
         subheader.value == "Optimized lineup" for subheader in app.subheader
     )
@@ -293,6 +297,20 @@ def test_add_edit_remove_and_reset_roster(monkeypatch):
     assert added["gender"] == "Man"
     assert added["available"] is True
     assert added["preferences"] == {"P", "RF"}
+
+    # The supported optimization domain is capped at 15 available players.
+    optimize = next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    )
+    assert optimize.disabled
+    assert any(
+        "At most 15 available players are supported" in warning.value
+        for warning in app.warning
+    )
+    availability_checkbox(app, "player-15").set_value(False).run(timeout=20)
+    assert not next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    ).disabled
 
     next(
         button for button in app.button if button.label == "Optimize seven innings"
@@ -742,7 +760,8 @@ def test_league_profile_is_explicit_invalidates_results_and_survives_reset(monke
     next(
         button for button in app.button if button.label == "Optimize seven innings"
     ).click().run(timeout=20)
-    assert optimizer.call_args.kwargs == {"profile": COED_RULES}
+    assert optimizer.call_args.kwargs["profile"] == COED_RULES
+    assert callable(optimizer.call_args.kwargs["progress_callback"])
     assert app.session_state["result"] is not None
 
     element_with_key(app.selectbox, "league-profile").set_value("open").run(
@@ -759,7 +778,8 @@ def test_league_profile_is_explicit_invalidates_results_and_survives_reset(monke
     next(
         button for button in app.button if button.label == "Optimize seven innings"
     ).click().run(timeout=20)
-    assert optimizer.call_args.kwargs == {"profile": OPEN_RULES}
+    assert optimizer.call_args.kwargs["profile"] == OPEN_RULES
+    assert callable(optimizer.call_args.kwargs["progress_callback"])
     assert app.session_state["result"].lineup_size == 10
 
     next(
@@ -873,7 +893,8 @@ def test_open_profile_does_not_require_available_women(monkeypatch):
     optimized_players = optimizer.call_args.args[0]
     assert len(optimized_players) == 10
     assert not any(candidate.is_woman for candidate in optimized_players)
-    assert optimizer.call_args.kwargs == {"profile": OPEN_RULES}
+    assert optimizer.call_args.kwargs["profile"] == OPEN_RULES
+    assert callable(optimizer.call_args.kwargs["progress_callback"])
     assert app.session_state["result"].active_positions == POSITIONS
 
 

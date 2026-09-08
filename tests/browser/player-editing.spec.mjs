@@ -167,6 +167,9 @@ test("issue #8 saves every individual edit and Cancel discards a draft", async (
   });
 
   await test.step("optimization and an uncommitted Add/Cancel preserve the saved record and result", async () => {
+    const matt = page.getByRole("checkbox", { name: "Matt", exact: true });
+    await activate(matt.locator("xpath=ancestor::label"), testInfo);
+    await expect(matt).not.toBeChecked();
     const optimize = page.getByRole("button", { name: "Optimize seven innings" });
     await activate(optimize, testInfo);
     const resultHeading = page.getByRole("heading", { name: "Optimized lineup" });
@@ -191,6 +194,10 @@ test("issue #8 saves every individual edit and Cancel discards a draft", async (
     await cancelEditor(page, testInfo);
     await expect(resultHeading).toBeVisible();
     await expect(page.getByText("Inputs changed — optimize again.")).toBeHidden();
+
+    await activate(matt.locator("xpath=ancestor::label"), testInfo);
+    await expect(matt).toBeChecked();
+    await expect(resultHeading).toBeHidden();
   });
 
   await test.step("Cancel discards acknowledged edits to an existing player", async () => {

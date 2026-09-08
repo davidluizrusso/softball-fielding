@@ -45,8 +45,16 @@ test("issues #1, #3, and #6 keep the game-day outcome visible and current", asyn
   await expect(optimize).toBeEnabled();
   await activate(optimize, testInfo);
 
+  const dancer = page.locator(".optimization-dancer");
+  await expect(dancer).toBeVisible({ timeout: 10_000 });
+  await expect(dancer).toContainText("Tiny coach is dancing");
+  expect(await dancer.locator(".optimization-dancer__figure").evaluate(
+    (figure) => getComputedStyle(figure).animationName,
+  )).toBe("softball-stick-figure-dance");
+
   const resultHeading = page.getByRole("heading", { name: "Optimized lineup" });
   await expect(resultHeading).toBeVisible({ timeout: 30_000 });
+  await expect(dancer).toBeHidden();
   const detailsHeading = page.getByRole("heading", {
     name: "Player details & preferences",
   });

@@ -482,7 +482,7 @@ with st.expander("Lineup rules", expanded=False):
             - **9 fielders:** no RF, at least 3 women.
             - **8 fielders:** no RF or C, at least 3 women.
             - Every inning has at least one woman in the infield and one in the outfield.
-            - Preferences are required. With 8 or 9 fielders, an RF preference also permits RC.
+            - Preferences are required. With exactly 8 fielders, an RF preference also permits RC.
             """
         )
     else:
@@ -492,9 +492,18 @@ with st.expander("Lineup rules", expanded=False):
             - **9 fielders:** no RF with 9 available players.
             - **8 fielders:** no RF or C with 8 available players.
             - Gender does not affect lineup size or fielding eligibility.
-            - Preferences are required. With 8 or 9 fielders, an RF preference also permits RC.
+            - Preferences are required. With exactly 8 fielders, an RF preference also permits RC.
             """
         )
+
+    st.markdown(
+        """
+        - **Preferred positions come first.** Fallback eligibility is used only after playing-time fairness is optimized.
+        - **Infield fallbacks:** SS permits 3B and 2B; 3B permits 2B. P and 1B are never inferred.
+        - **Outfield fallbacks:** LC permits LF, RC, and RF; LF permits RC and RF; RC permits RF.
+        - **Catcher fallback:** everyone is eligible for C.
+        """
+    )
 
 st.subheader("Who’s playing?")
 st.caption("Tap a name to toggle availability for this game.")
@@ -675,12 +684,65 @@ optimize_clicked = st.button(
 )
 
 if optimize_clicked:
+    optimization_dancer = st.empty()
+    optimization_dancer.markdown(
+        """
+        <style>
+        @keyframes softball-stick-figure-dance {
+            0% { transform: translateX(-0.35rem) rotate(-7deg); }
+            50% { transform: translateY(-0.3rem) rotate(7deg); }
+            100% { transform: translateX(0.35rem) rotate(-4deg); }
+        }
+        .optimization-dancer {
+            align-items: center;
+            display: flex;
+            gap: 0.8rem;
+            margin: 0.35rem 0 0.7rem;
+        }
+        .optimization-dancer__figure {
+            animation: softball-stick-figure-dance 0.42s steps(2, jump-none)
+                infinite alternate;
+            display: inline-block;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 1.1rem;
+            font-weight: 700;
+            line-height: 0.9;
+            text-align: center;
+            transform-origin: 50% 100%;
+            white-space: pre;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .optimization-dancer__figure { animation: none; }
+        }
+        </style>
+        <div class="optimization-dancer" role="status"
+             aria-label="Optimization in progress">
+            <span class="optimization-dancer__figure" aria-hidden="true">\\o/<br> |<br>/ ╲</span>
+            <span>Tiny coach is dancing while the lineup cooks.</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    optimization_status = st.status(
+        "Preparing the optimization…", expanded=False
+    )
+
+    def update_optimization_status(message: str) -> None:
+        optimization_status.update(label=message, state="running")
+
     try:
         available_players = players_from_roster(roster)
         optimization_started = perf_counter()
-        with st.spinner("Optimizing seven innings…"):
-            result = optimize_game(available_players, profile=league_rules)
+        result = optimize_game(
+            available_players,
+            profile=league_rules,
+            progress_callback=update_optimization_status,
+        )
         optimization_seconds = perf_counter() - optimization_started
+        optimization_status.update(
+            label="Lineup optimization complete.", state="complete"
+        )
+        optimization_dancer.empty()
         st.session_state.result = result
         st.session_state.result_fingerprint = current_fingerprint
         st.session_state.last_attempt_fingerprint = current_fingerprint
@@ -688,6 +750,10 @@ if optimize_clicked:
         st.session_state.error = None
         st.session_state.inputs_changed = False
     except (LineupError, ValueError) as error:
+        optimization_status.update(
+            label="Lineup optimization stopped.", state="error"
+        )
+        optimization_dancer.empty()
         st.session_state.result = None
         st.session_state.error = str(error)
         st.session_state.last_attempt_fingerprint = current_fingerprint
@@ -757,7 +823,11 @@ if result:
 
 st.divider()
 st.subheader("Player details & preferences")
-st.caption("Open a player card to edit their name, gender, or positions.")
+st.caption(
+    "Open a player card to edit their name, gender, or preferred positions. "
+    "The optimizer may use hierarchy-derived fallback positions only after "
+    "playing-time fairness."
+)
 
 if st.button(
     "＋ Add player",

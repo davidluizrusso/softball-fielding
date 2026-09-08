@@ -12,13 +12,24 @@ than two positions when possible.
 - Gender (`Woman` or `Man`)
 - League rules profile (`Co-ed` or `Open`)
 - Availability for the game, toggled from a tap-friendly player list
-- Unranked positional preferences, selected from wrapping position buttons
+- Explicit positional preferences, selected from wrapping position buttons
 
 The initial names, genders, and preferences come from `roster_positions.csv`.
 All players default to available when the file has no availability column.
 
-Preferences are hard eligibility rules: a player may not be assigned to an
-unlisted position.
+Explicit preferences are first-choice assignments. The optimizer derives a
+larger fallback-eligibility set from the universal hierarchy below, but it
+minimizes fallback innings before considering any continuity objective.
+
+- Everyone is eligible for `C` as a fallback.
+- `SS` implies `3B` and `2B`; `3B` implies `2B`.
+- `LC` implies `LF`, `RC`, and `RF`; `LF` implies `RC` and `RF`; `RC` implies
+  `RF`.
+- `P` and `1B` are opt-in only and are never inferred.
+
+All inferred positions have the same fallback cost. The model does not invent
+a comfort ranking among them. Explicit preferences remain stored separately
+and unchanged.
 
 ## League profiles, positions, and lineup sizes
 
@@ -55,7 +66,10 @@ stored roster attribute, but it does not affect Open lineup size, legality, or
 optimization. A position-eligibility failure for a ten-player Open roster is
 reported as an error; it does not silently reduce the lineup to nine.
 
-In an 8- or 9-player lineup under either profile, listing `RF` also makes the
+The supported optimization input is 8–15 available players. A session may
+retain more roster records, but at most 15 may be selected for one solve.
+
+In an 8-player lineup under either profile, listing `RF` also makes the
 player eligible at `RC` for that game.
 
 ## Per-inning legality
@@ -80,11 +94,12 @@ After satisfying all hard rules, optimize in this order:
 
 1. Minimize the spread between the most and least innings played.
 2. Minimize total deviation from an equal share of the available innings.
-3. Minimize one-inning state stints, including `Bench`.
-4. Minimize fielding positions beyond two.
-5. Minimize two-inning state stints, including `Bench`.
-6. Minimize total distinct fielding positions.
-7. Minimize adjacent state transitions, including field-to-Bench and
+3. Minimize innings assigned to hierarchy-derived fallback positions.
+4. Minimize one-inning state stints, including `Bench`.
+5. Minimize fielding positions beyond two.
+6. Minimize two-inning state stints, including `Bench`.
+7. Minimize total distinct fielding positions.
+8. Minimize adjacent state transitions, including field-to-Bench and
    Bench-to-field changes.
 
 The two-position target is soft and may be exceeded to improve higher-priority
@@ -94,6 +109,13 @@ position, inning played, or member of the reported positions-used set.
 Consecutive Bench innings form one stint. `A → Bench → A` contains two A
 stints and two adjacent transitions. Inning one does not itself count as a
 transition.
+
+The solver first attempts to certify the arithmetic floor/ceiling distribution
+for playing time, then uses a two-second fairness proof budget when that slice
+is infeasible or cannot be established immediately. The UI reports each active
+optimization phase. `OPTIMAL` is reported only when every higher-priority stage
+and the final weighted continuity objective are proven; otherwise a legal
+incumbent is labeled `FEASIBLE`.
 
 ## Output
 

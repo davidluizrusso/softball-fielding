@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const CHANGED_MESSAGE = "Inputs changed — optimize again.";
 const UNCOVERED_P_ERROR =
-  "No available player prefers the following required position(s): P.";
+  "No available player is eligible for the following required position(s): P.";
 
 async function activate(locator, testInfo) {
   if (testInfo.project.name === "mobile-touch") {
