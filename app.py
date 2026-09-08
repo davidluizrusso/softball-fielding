@@ -503,18 +503,35 @@ player_labels = {
     str(record["id"]): str(record.get("name", "")).strip() or "Unnamed player"
     for record in roster
 }
-display_roster = sorted(
-    roster,
-    key=lambda record: (
-        0 if record.get("gender") == "Woman" else 1,
-        str(record.get("name", "")).strip().casefold(),
-    ),
-)
+if league_rules == COED_RULES:
+    display_roster = sorted(
+        roster,
+        key=lambda record: (
+            0 if record.get("gender") == "Woman" else 1,
+            str(record.get("name", "")).strip().casefold(),
+        ),
+    )
+    availability_groups = (("Women", "Woman"), ("Men", "Man"))
+else:
+    display_roster = sorted(
+        roster,
+        key=lambda record: str(record.get("name", "")).strip().casefold(),
+    )
+    availability_groups = (("Players", None),)
 
 available_id_set = set()
-for group_label, gender in (("Women", "Woman"), ("Men", "Man")):
-    group = [record for record in display_roster if record.get("gender") == gender]
+for group_label, gender in availability_groups:
+    group = (
+        display_roster
+        if gender is None
+        else [
+            record
+            for record in display_roster
+            if record.get("gender") == gender
+        ]
+    )
     group_ids = [str(record["id"]) for record in group]
+    group_key = gender or "players"
     st.markdown(f"**{group_label}**")
     availability_columns = st.columns(2)
     group_available_ids = []
@@ -539,7 +556,7 @@ for group_label, gender in (("Women", "Woman"), ("Men", "Man")):
     with select_column:
         st.button(
             f"Select all {group_label.lower()}",
-            key=f"select-all-{gender}",
+            key=f"select-all-{group_key}",
             width="stretch",
             disabled=interaction_locked,
             on_click=set_group_availability,
@@ -548,7 +565,7 @@ for group_label, gender in (("Women", "Woman"), ("Men", "Man")):
     with clear_column:
         st.button(
             f"Clear all {group_label.lower()}",
-            key=f"clear-all-{gender}",
+            key=f"clear-all-{group_key}",
             width="stretch",
             disabled=interaction_locked,
             on_click=set_group_availability,

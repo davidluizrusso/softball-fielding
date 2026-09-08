@@ -771,6 +771,82 @@ def test_league_profile_is_explicit_invalidates_results_and_survives_reset(monke
     assert element_with_key(app.selectbox, "league-profile").value == "open"
 
 
+def test_open_profile_uses_one_gender_neutral_availability_group(monkeypatch):
+    optimizer = Mock(side_effect=fake_result)
+    monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)
+    app = AppTest.from_file(APP_PATH).run(timeout=20)
+    mixed_player_id = next(
+        record["id"]
+        for record in app.session_state["roster"]
+        if record["name"] == "Andrew"
+    )
+
+    assert any(item.value == "**Women**" for item in app.markdown)
+    assert any(item.value == "**Men**" for item in app.markdown)
+    availability_checkbox(app, mixed_player_id).set_value(False).run(timeout=20)
+
+    element_with_key(app.selectbox, "league-profile").set_value("open").run(
+        timeout=20
+    )
+
+    assert any(item.value == "**Players**" for item in app.markdown)
+    assert not any(item.value in {"**Women**", "**Men**"} for item in app.markdown)
+    button_labels = {button.label for button in app.button}
+    assert "Select all players" in button_labels
+    assert "Clear all players" in button_labels
+    assert "Select all women" not in button_labels
+    assert "Clear all men" not in button_labels
+    availability_labels = [
+        checkbox.label
+        for checkbox in app.checkbox
+        if checkbox.key and checkbox.key.startswith("available-")
+    ]
+    alphabetical_labels = sorted(
+        (record["name"] for record in app.session_state["roster"]),
+        key=str.casefold,
+    )
+    # AppTest traverses the two visual columns one column at a time. The UI
+    # fills those columns from an alphabetically ordered, row-major list.
+    assert availability_labels == (
+        alphabetical_labels[::2] + alphabetical_labels[1::2]
+    )
+    assert not availability_checkbox(app, mixed_player_id).value
+
+    element_with_key(app.selectbox, "league-profile").set_value("coed").run(
+        timeout=20
+    )
+    assert not availability_checkbox(app, mixed_player_id).value
+
+    element_with_key(app.selectbox, "league-profile").set_value("open").run(
+        timeout=20
+    )
+    next(
+        button for button in app.button if button.label == "Optimize seven innings"
+    ).click().run(timeout=20)
+    assert app.session_state["result"] is not None
+
+    next(
+        button for button in app.button if button.label == "Clear all players"
+    ).click().run(timeout=20)
+    assert not any(record["available"] for record in app.session_state["roster"])
+    assert app.session_state["result"] is None
+    assert any(
+        info.value == "Inputs changed — optimize again." for info in app.info
+    )
+
+    next(
+        button for button in app.button if button.label == "Select all players"
+    ).click().run(timeout=20)
+    assert all(record["available"] for record in app.session_state["roster"])
+
+    element_with_key(app.selectbox, "league-profile").set_value("coed").run(
+        timeout=20
+    )
+    assert any(item.value == "**Women**" for item in app.markdown)
+    assert any(item.value == "**Men**" for item in app.markdown)
+    assert all(record["available"] for record in app.session_state["roster"])
+
+
 def test_open_profile_does_not_require_available_women(monkeypatch):
     optimizer = Mock(side_effect=fake_result)
     monkeypatch.setattr(softball_fielding, "optimize_game", optimizer)

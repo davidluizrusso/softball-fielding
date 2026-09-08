@@ -110,6 +110,73 @@ test("issues #1, #3, and #6 keep the game-day outcome visible and current", asyn
   );
   await expect(page.getByText(/Active profile:.*Open/)).toBeVisible();
   await expect(page.getByText(/At least 3 available women are required/)).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "Clear all women", exact: true }),
+  ).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "Select all men", exact: true }),
+  ).toBeHidden();
+  const clearAllPlayers = page.getByRole("button", {
+    name: "Clear all players",
+    exact: true,
+  });
+  const selectAllPlayers = page.getByRole("button", {
+    name: "Select all players",
+    exact: true,
+  });
+  await expect(clearAllPlayers).toBeVisible();
+  await expect(selectAllPlayers).toBeVisible();
+  expect((await clearAllPlayers.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  expect((await selectAllPlayers.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  await expect(andrew).not.toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Ashley", exact: true }),
+  ).not.toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Brian", exact: true }),
+  ).toBeChecked();
+
+  await choose(page, "League rules", "Co-ed", testInfo);
+  await expect(andrew).not.toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Ashley", exact: true }),
+  ).not.toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Brian", exact: true }),
+  ).toBeChecked();
+  await choose(
+    page,
+    "League rules",
+    "Open (no gender fielding minimums)",
+    testInfo,
+  );
+
+  await activate(clearAllPlayers, testInfo);
+  await expect(
+    page.getByText("0 available players", { exact: true }),
+  ).toBeVisible();
+  await expect(andrew).not.toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Ashley", exact: true }),
+  ).not.toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Brian", exact: true }),
+  ).not.toBeChecked();
+  await expect(optimize).toBeDisabled();
+  await expect(page.getByText(/At least 8 available players are required/)).toBeVisible();
+  await expect(page.getByText(/available women are required/)).toBeHidden();
+
+  await activate(selectAllPlayers, testInfo);
+  await expect(
+    page.getByText("15 available players", { exact: true }),
+  ).toBeVisible();
+  await expect(andrew).toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Ashley", exact: true }),
+  ).toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Brian", exact: true }),
+  ).toBeChecked();
   await expect(optimize).toBeEnabled();
   await activate(optimize, testInfo);
   await expect(resultHeading).toBeVisible({ timeout: 30_000 });
