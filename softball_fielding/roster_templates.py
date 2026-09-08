@@ -4,7 +4,7 @@ import csv
 from pathlib import Path
 from typing import Dict, List
 
-from .models import POSITIONS, Player
+from .models import POSITIONS
 
 
 TEAM_RED_ROSTER_CSV = (
@@ -53,7 +53,13 @@ def team_red_roster() -> List[Dict[str, object]]:
             for position in POSITIONS
             if _selected(normalized_row.get(position, ""))
         }
-        Player(name=name, gender="Unspecified", preferences=frozenset(preferences))
+        # Validate template-specific invariants here. The optimizer constructs
+        # and validates Player domain objects at the solve boundary.
+        if not preferences:
+            raise ValueError(
+                f"{TEAM_RED_ROSTER_CSV.name} must include at least one "
+                f"position for {name}."
+            )
         roster.append(
             {
                 "id": f"player-{index}",

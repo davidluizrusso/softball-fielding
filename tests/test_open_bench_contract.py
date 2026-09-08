@@ -3,6 +3,7 @@ from itertools import groupby
 
 import pytest
 
+import softball_fielding.roster_templates as roster_templates
 from softball_fielding import LineupError, OPEN_RULES, Player, optimize_game
 from softball_fielding.models import INNINGS, POSITIONS
 from softball_fielding.optimizer import _eligible_positions
@@ -102,6 +103,28 @@ def test_team_red_template_matches_the_approved_public_roster():
         for record in roster
         for position in record["preferences"]
     } == set(POSITIONS)
+
+
+def test_team_red_template_rejects_a_player_without_preferences(
+    monkeypatch, tmp_path
+):
+    roster_csv = tmp_path / "team_red_without_preferences.csv"
+    roster_csv.write_text(
+        "Name,P,C,1B,2B,3B,SS,LF,LC,RC,RF\n"
+        "Positionless Pat,No,No,No,No,No,No,No,No,No,No\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        roster_templates,
+        "TEAM_RED_ROSTER_CSV",
+        roster_csv,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="must include at least one position for Positionless Pat",
+    ):
+        team_red_roster()
 
 
 def test_team_red_open_schedule_is_fair_and_minimizes_state_switches():
