@@ -75,7 +75,9 @@ See [SPEC.md](SPEC.md) for the lineup rules and optimization priorities.
 
 ## Documentation
 
-[SPEC.md](SPEC.md) is the current normative description. The older papers in
-`docs/` are retained only as historical pre-hierarchy examples and do not
-describe the current optimizer. A new Open-rules paper will replace them as the
-linked technical reference after its formulation and compiled PDF pass review.
+[SPEC.md](SPEC.md) is the current normative description. The reviewed
+[Open-rules optimization paper](docs/open_rules_fielding_optimization.pdf)
+provides the formal model, Team Red case study, and verification evidence; its
+[LaTeX source](docs/open_rules_fielding_optimization.tex) is checked in beside
+it. The older papers in `docs/` are retained only as historical pre-hierarchy
+examples and do not describe the current optimizer.
