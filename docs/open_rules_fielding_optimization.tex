@@ -422,8 +422,9 @@ following nominally bounded phases:
 Each accepted phase returns a legal assignment. Higher-priority values are
 constrained before lower-priority search begins. A final status of
 \emph{OPTIMAL} is exposed only if fairness, fallback use, one-inning runs,
-excess positions, and the final continuity objective are all proven. Any legal
-incumbent lacking one of those proofs is truthfully labeled \emph{FEASIBLE}.
+excess positions, the dedicated two-inning tier, and the final distinct-position
+and transition tail are all proven. Any legal incumbent lacking one of those
+proofs is truthfully labeled \emph{FEASIBLE}.
 The latter label concerns proof of objective optimality, not legality.
 
 On the recorded macOS reference environment at commit \code{bf0f6b2}, twenty measured HFTB solves

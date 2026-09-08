@@ -404,6 +404,174 @@ def continuity_metrics(result):
     }
 
 
+def _assignments_from_solver_response(solver, players):
+    """Reconstruct the fielding matrix from a captured CP-SAT incumbent."""
+
+    solution = solver.delegate.ResponseProto().solution
+    assignments = [dict() for _inning in range(INNINGS)]
+    for index, variable in enumerate(solver.solved_model.Proto().variables):
+        if not solution[index] or not variable.name.startswith("inning_"):
+            continue
+        parts = variable.name.split("_")
+        if len(parts) != 5 or parts[4] == "bench":
+            continue
+        inning = int(parts[1])
+        player_index = int(parts[3])
+        position = parts[4]
+        assignments[inning][position] = players[player_index].name
+    return tuple(assignments)
+
+
+@pytest.mark.parametrize(
+    ("forced_final_status", "return_worse_vector"),
+    [
+        (cp_model.UNKNOWN, False),
+        (cp_model.INFEASIBLE, False),
+        (cp_model.FEASIBLE, True),
+    ],
+)
+def test_final_timed_candidate_cannot_replace_the_best_legal_incumbent(
+    monkeypatch, forced_final_status, return_worse_vector
+):
+    """Exercise the real final handoff for every rejected-candidate mode."""
+
+    real_solver = cp_model.CpSolver
+    real_vector = optimizer_module._continuity_vector_from_solver
+    captured = {}
+
+    class FinalCandidateMutatingSolver:
+        def __init__(self):
+            self.delegate = real_solver()
+            self.parameters = self.delegate.parameters
+            self.is_final_solver = False
+            self.solved_model = None
+
+        def Solve(self, model):
+            objective_names = {
+                model.Proto().variables[index].name
+                for index in model.Proto().objective.vars
+            }
+            self.is_final_solver = bool(objective_names) and all(
+                name.startswith("distinct_positions_")
+                or "_transition_" in name
+                for name in objective_names
+            )
+            if self.is_final_solver:
+                captured["final_calls"] = captured.get("final_calls", 0) + 1
+                if forced_final_status in (cp_model.UNKNOWN, cp_model.INFEASIBLE):
+                    return forced_final_status
+            self.solved_model = model
+            status = self.delegate.Solve(model)
+            return cp_model.FEASIBLE if self.is_final_solver else status
+
+        def Value(self, variable):
+            return self.delegate.Value(variable)
+
+        def __getattr__(self, name):
+            return getattr(self.delegate, name)
+
+    def tracking_vector(solver, *variable_groups):
+        vector = real_vector(solver, *variable_groups)
+        if getattr(solver, "is_final_solver", False) and return_worse_vector:
+            incumbent = captured["incumbent_vector"]
+            return (incumbent[0] + 1, *incumbent[1:])
+        captured["incumbent_vector"] = vector
+        captured["incumbent_solver"] = solver
+        return vector
+
+    monkeypatch.setattr(
+        optimizer_module.cp_model, "CpSolver", FinalCandidateMutatingSolver
+    )
+    monkeypatch.setattr(
+        optimizer_module, "_continuity_vector_from_solver", tracking_vector
+    )
+    players = tuple(
+        player(position, "Man", position) for position in POSITIONS
+    )
+
+    result = optimize_game(
+        players,
+        profile=OPEN_RULES,
+        max_solve_seconds=1.0,
+    )
+
+    assert captured["final_calls"] == 1
+    assert result.assignments == _assignments_from_solver_response(
+        captured["incumbent_solver"], players
+    )
+    metrics = continuity_metrics(result)
+    assert (
+        metrics["one_inning_state_runs"],
+        metrics["excess_field_positions"],
+        metrics["two_inning_state_runs"],
+        metrics["distinct_field_positions"],
+        metrics["transitions"],
+    ) == captured["incumbent_vector"]
+    assert_schedule_invariants(result, players, OPEN_RULES)
+    assert_equal_share(result)
+    assert result.solver_status == "FEASIBLE"
+
+
+def test_two_inning_portfolio_uses_two_isolated_four_worker_searches(
+    monkeypatch,
+):
+    real_solver = cp_model.CpSolver
+    configurations = []
+
+    class PortfolioInspectingSolver:
+        def __init__(self):
+            self.delegate = real_solver()
+            self.parameters = self.delegate.parameters
+
+        def Solve(self, model):
+            objective_names = {
+                model.Proto().variables[index].name
+                for index in model.Proto().objective.vars
+            }
+            if any("_two_inning_" in name for name in objective_names):
+                configurations.append(
+                    (
+                        self.parameters.random_seed,
+                        self.parameters.num_search_workers,
+                        self.parameters.use_lns_only,
+                        id(model),
+                        id(self.delegate),
+                    )
+                )
+            return self.delegate.Solve(model)
+
+        def Value(self, variable):
+            return self.delegate.Value(variable)
+
+        def __getattr__(self, name):
+            return getattr(self.delegate, name)
+
+    monkeypatch.setattr(
+        optimizer_module.cp_model, "CpSolver", PortfolioInspectingSolver
+    )
+    players = tuple(
+        player(position, "Man", position) for position in POSITIONS
+    )
+
+    result = optimize_game(
+        players,
+        profile=OPEN_RULES,
+        max_solve_seconds=1.0,
+    )
+
+    assert_schedule_invariants(result, players, OPEN_RULES)
+    assert {
+        (seed, workers, use_lns_only)
+        for seed, workers, use_lns_only, _model_id, _solver_id in configurations
+    } == {(42, 4, False), (43, 4, True)}
+    assert len(
+        {model_id for *_configuration, model_id, _solver_id in configurations}
+    ) == 2
+    assert len(
+        {solver_id for *_configuration, _model_id, solver_id in configurations}
+    ) == 2
+
+
 def test_explicit_preferences_beat_a_strictly_smoother_fallback_schedule():
     original_players = preference_continuity_trade_players()
     promoted_players = preference_continuity_trade_players(

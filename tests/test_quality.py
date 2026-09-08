@@ -113,7 +113,7 @@ def test_published_hftb_default_preserves_fairness_and_quality_contract():
         metrics["fallback_innings"],
     ) == (4, 210, 0)
     assert continuity_vector(metrics) <= (5, 0, 9, 20, 21)
-    assert result.solver_status == "FEASIBLE"
+    assert result.solver_status in {"FEASIBLE", "OPTIMAL"}
 
 
 def test_default_solve_budget_is_five_seconds_and_override_remains_supported(
