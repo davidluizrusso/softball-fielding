@@ -200,6 +200,81 @@ def test_unproven_fallback_incumbent_is_frozen_before_continuity(monkeypatch):
     )
 
 
+def test_short_stint_fallback_objective_looks_ahead_to_excess(monkeypatch):
+    real_solver = cp_model.CpSolver
+    skipped_ideal_stint_probe = False
+    inspected_weighted_lookahead = False
+
+    class LookaheadInspected(Exception):
+        pass
+
+    class InspectedLookaheadSolver:
+        def __init__(self):
+            self.delegate = real_solver()
+            self.parameters = self.delegate.parameters
+
+        def Solve(self, model):
+            nonlocal skipped_ideal_stint_probe
+            nonlocal inspected_weighted_lookahead
+            model_proto = model.Proto()
+            objective_terms = {
+                model_proto.variables[index].name: coefficient
+                for index, coefficient in zip(
+                    model_proto.objective.vars,
+                    model_proto.objective.coeffs,
+                )
+            }
+            objective_names = set(objective_terms)
+            one_inning_names = {
+                name for name in objective_names if "_one_inning_" in name
+            }
+            excess_names = {
+                name
+                for name in objective_names
+                if name.startswith("excess_positions_")
+            }
+
+            if (
+                not skipped_ideal_stint_probe
+                and excess_names
+                and not one_inning_names
+            ):
+                skipped_ideal_stint_probe = True
+                return cp_model.UNKNOWN
+
+            if one_inning_names and excess_names and not inspected_weighted_lookahead:
+                inspected_weighted_lookahead = True
+                maximum_excess = 11 * (len(POSITIONS) - 2)
+                assert {objective_terms[name] for name in one_inning_names} == {
+                    maximum_excess + 1
+                }
+                assert {objective_terms[name] for name in excess_names} == {1}
+                raise LookaheadInspected
+
+            return self.delegate.Solve(model)
+
+        def Value(self, variable):
+            return self.delegate.Value(variable)
+
+        def __getattr__(self, name):
+            return getattr(self.delegate, name)
+
+    monkeypatch.setattr(
+        optimizer_module.cp_model,
+        "CpSolver",
+        InspectedLookaheadSolver,
+    )
+    players = [
+        player(f"W{index}", "Woman", *POSITIONS) for index in range(4)
+    ] + [player(f"M{index}", "Man", *POSITIONS) for index in range(7)]
+
+    with pytest.raises(LookaheadInspected):
+        optimize_game(players, max_solve_seconds=15.0)
+
+    assert skipped_ideal_stint_probe
+    assert inspected_weighted_lookahead
+
+
 def test_proven_short_stint_optimum_does_not_reimpose_infeasible_ideal_groups():
     players = [
         player("A", "Man", "P"),

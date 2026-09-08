@@ -385,11 +385,11 @@ does not sacrifice an avoidable extra field position merely to lengthen a run.
 The model is implemented with the OR-Tools CP-SAT solver, which supports
 Boolean and integer constraint models and distinguishes statuses including
 \emph{OPTIMAL}, \emph{FEASIBLE}, and \emph{INFEASIBLE} \cite{ortoolscpsat}.
-The interactive default is a nominal five-second solver-phase target measured
+The interactive default is a nominal ten-second multi-phase solve target measured
 only after model construction. It is not a hard end-to-end wall-clock bound:
 model-building time, Python and Streamlit overhead, CP-SAT time-limit behavior,
-and the implementation's 0.1-second minimum allocation for later phases can
-make observed elapsed time exceed five seconds. The implementation uses the
+and the implementation's minimum per-phase and subphase allocations of
+0.05--0.1 seconds can make observed elapsed time exceed ten seconds. The implementation uses the
 following nominally bounded phases:
 \begin{enumerate}
     \item \textbf{Arithmetic fairness certificate.} Add
@@ -405,11 +405,16 @@ following nominally bounded phases:
     than silently relaxed.
     \item \textbf{One-inning phase.} Test the ideal lower bound in which the
     only single-inning field run is forced by $t_p=1$ and the only single-
-    inning Bench run is forced by $t_p=6$. If that ideal slice is not found,
-    minimize $o_1$ and preserve its incumbent.
-    \item \textbf{Two-position phase.} Minimize $e$ with a decision strategy
-    favoring unused position indicators. A proved value is fixed; an unproved
-    incumbent becomes a non-worsening upper bound.
+    inning Bench run is forced by $t_p=6$. Within this hard slice, minimize
+    $e$ as look-ahead to the next tier. If the ideal slice is not found,
+    minimize $o_1(E^{UB}+1)+e$, where $E^{UB}$ bounds total excess positions,
+    and preserve the one-inning incumbent. The coefficient keeps every unit
+    of $o_1$ strictly more important than all possible changes in $e$.
+    \item \textbf{Two-position phase.} If look-ahead proves the value of $e$
+    or reaches its analytic lower bound of zero, fix that value immediately.
+    Otherwise, first test the $e=0$ slice inside the existing phase budget,
+    then minimize $e$ with the unspent remainder. A proved value is fixed; an
+    unproved incumbent becomes a non-worsening upper bound.
     \item \textbf{Continuity phase.} Minimize $J_C$ for the remaining nominal
     phase budget, using prior assignments as solution hints where applicable.
 \end{enumerate}
@@ -501,7 +506,7 @@ to catch by policy.
 \section{Verification and Falsification Strategy}
 
 Validation is organized around properties rather than visual plausibility.
-At the September 2026 release gate, 93 Python tests and 12 Playwright browser
+At the September 2026 release gate, 95 Python tests and 12 Playwright browser
 tests pass. The browser suite runs each workflow in a mobile-touch project and
 a desktop-mouse project. The principal evidence includes:
 \begin{enumerate}
