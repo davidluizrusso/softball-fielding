@@ -1031,44 +1031,25 @@ if optimize_clicked:
     optimization_dancer.markdown(
         """
         <style>
-        @keyframes softball-moon-body {
-            0%, 42% { transform: translateX(1px) rotate(0.5deg); }
-            50%, 92% { transform: translateX(-1px) rotate(-0.5deg); }
-            100% { transform: translateX(1px) rotate(0.5deg); }
+        @keyframes softball-jumping-jack-body {
+            0%, 100% { transform: translateY(0); }
+            45%, 55% { transform: translateY(-2px); }
         }
-        @keyframes softball-moon-arm-front {
-            0%, 42% { transform: rotate(-7deg); }
-            50%, 92% { transform: rotate(8deg); }
-            100% { transform: rotate(-7deg); }
+        @keyframes softball-jumping-jack-arm-left {
+            0%, 100% { transform: rotate(0deg); }
+            45%, 55% { transform: rotate(110deg); }
         }
-        @keyframes softball-moon-arm-rear {
-            0%, 42% { transform: rotate(8deg); }
-            50%, 92% { transform: rotate(-7deg); }
-            100% { transform: rotate(8deg); }
+        @keyframes softball-jumping-jack-arm-right {
+            0%, 100% { transform: rotate(0deg); }
+            45%, 55% { transform: rotate(-110deg); }
         }
-        @keyframes softball-moon-leg-front {
-            0%, 42% { transform: rotate(5deg); }
-            50%, 92% { transform: rotate(-5deg); }
-            100% { transform: rotate(5deg); }
+        @keyframes softball-jumping-jack-leg-left {
+            0%, 100% { transform: rotate(0deg); }
+            45%, 55% { transform: rotate(26deg); }
         }
-        @keyframes softball-moon-leg-rear {
-            0%, 42% { transform: rotate(-5deg); }
-            50%, 92% { transform: rotate(5deg); }
-            100% { transform: rotate(-5deg); }
-        }
-        @keyframes softball-moon-foot-front {
-            0% { transform: translateX(2px) rotate(0deg); }
-            42% { transform: translateX(-2px) rotate(0deg); }
-            50% { transform: translateX(-2px) rotate(28deg); }
-            92% { transform: translateX(2px) rotate(28deg); }
-            100% { transform: translateX(2px) rotate(0deg); }
-        }
-        @keyframes softball-moon-foot-rear {
-            0% { transform: translateX(-2px) rotate(28deg); }
-            42% { transform: translateX(2px) rotate(28deg); }
-            50% { transform: translateX(2px) rotate(0deg); }
-            92% { transform: translateX(-2px) rotate(0deg); }
-            100% { transform: translateX(-2px) rotate(28deg); }
+        @keyframes softball-jumping-jack-leg-right {
+            0%, 100% { transform: rotate(0deg); }
+            45%, 55% { transform: rotate(-26deg); }
         }
         .optimization-dancer {
             height: 5.25rem;
@@ -1084,52 +1065,41 @@ if optimize_clicked:
             width: 7rem;
         }
         .optimization-dancer__body {
-            animation: softball-moon-body 1.8s ease-in-out infinite;
+            animation: softball-jumping-jack-body 1.2s ease-in-out 4 forwards;
             transform-box: fill-box;
-            transform-origin: 50% 100%;
+            transform-origin: center;
         }
         .optimization-dancer__arm {
             transform-box: fill-box;
-            transform-origin: 50% 0%;
+            transform-origin: top center;
         }
-        .optimization-dancer__arm--front {
-            animation: softball-moon-arm-front 1.8s ease-in-out infinite;
+        .optimization-dancer__arm--left {
+            animation: softball-jumping-jack-arm-left 1.2s ease-in-out 4 forwards;
         }
-        .optimization-dancer__arm--rear {
-            animation: softball-moon-arm-rear 1.8s ease-in-out infinite;
+        .optimization-dancer__arm--right {
+            animation: softball-jumping-jack-arm-right 1.2s ease-in-out 4 forwards;
         }
         .optimization-dancer__leg {
             transform-box: fill-box;
-            transform-origin: 50% 0%;
+            transform-origin: top center;
         }
-        .optimization-dancer__leg--front {
-            animation: softball-moon-leg-front 1.8s ease-in-out infinite;
+        .optimization-dancer__leg--left {
+            animation: softball-jumping-jack-leg-left 1.2s ease-in-out 4 forwards;
         }
-        .optimization-dancer__leg--rear {
-            animation: softball-moon-leg-rear 1.8s ease-in-out infinite;
-        }
-        .optimization-dancer__foot {
-            transform-box: fill-box;
-            transform-origin: 100% 50%;
-        }
-        .optimization-dancer__foot--front {
-            animation: softball-moon-foot-front 1.8s ease-in-out infinite;
-        }
-        .optimization-dancer__foot--rear {
-            animation: softball-moon-foot-rear 1.8s ease-in-out infinite;
+        .optimization-dancer__leg--right {
+            animation: softball-jumping-jack-leg-right 1.2s ease-in-out 4 forwards;
         }
         @media (prefers-reduced-motion: reduce) {
             .optimization-dancer__body,
             .optimization-dancer__arm,
-            .optimization-dancer__leg,
-            .optimization-dancer__foot {
+            .optimization-dancer__leg {
                 animation: none;
                 transform: none;
             }
         }
         </style>
         <div class="optimization-dancer" aria-hidden="true"
-             data-motion="moon-dance" data-facing="right">
+             data-motion="jumping-jacks" data-pose-count="2">
             <svg class="optimization-dancer__figure" viewBox="0 0 112 80"
                  aria-hidden="true" focusable="false">
                 <path d="M8 70 H104" fill="none" stroke="currentColor"
@@ -1138,32 +1108,19 @@ if optimize_clicked:
                 <g class="optimization-dancer__body" fill="none"
                    stroke="currentColor" stroke-linecap="round"
                    stroke-linejoin="round" stroke-width="3.5">
-                    <circle cx="61" cy="14" r="8" />
-                    <path d="M68.5 12.5 Q73 14 69 16" />
-                    <circle cx="65" cy="12" r="0.85" fill="currentColor"
-                            stroke="none" />
-                    <path d="M60 22 L56 46" />
-                    <g class="optimization-dancer__arm optimization-dancer__arm--rear">
-                        <path d="M59 27 L45 36 L39 31" />
+                    <circle cx="56" cy="13" r="7.5" />
+                    <path d="M56 21 L56 47" />
+                    <g class="optimization-dancer__arm optimization-dancer__arm--left">
+                        <path d="M54 26 L44 45" />
                     </g>
-                    <g class="optimization-dancer__arm optimization-dancer__arm--front">
-                        <path d="M59 27 L72 35 L78 30" />
+                    <g class="optimization-dancer__arm optimization-dancer__arm--right">
+                        <path d="M58 26 L68 45" />
                     </g>
-                    <g class="optimization-dancer__leg optimization-dancer__leg--rear">
-                        <path d="M56 46 L46 57 L43 67" />
-                        <g class="optimization-dancer__foot optimization-dancer__foot--rear">
-                            <path d="M43 67 H59" />
-                            <circle cx="59" cy="67" r="1.4"
-                                    fill="currentColor" stroke="none" />
-                        </g>
+                    <g class="optimization-dancer__leg optimization-dancer__leg--left">
+                        <path d="M56 47 L52 68 L47 68" />
                     </g>
-                    <g class="optimization-dancer__leg optimization-dancer__leg--front">
-                        <path d="M56 46 L66 57 L69 67" />
-                        <g class="optimization-dancer__foot optimization-dancer__foot--front">
-                            <path d="M69 67 H85" />
-                            <circle cx="85" cy="67" r="1.4"
-                                    fill="currentColor" stroke="none" />
-                        </g>
+                    <g class="optimization-dancer__leg optimization-dancer__leg--right">
+                        <path d="M56 47 L60 68 L65 68" />
                     </g>
                 </g>
             </svg>

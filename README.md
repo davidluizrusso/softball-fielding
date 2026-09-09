@@ -70,7 +70,7 @@ screens, the matrix scrolls horizontally inside its own keyboard-accessible
 region without widening the page. The complete lineup also remains available
 as a CSV download. Explicit positions are preferred and hierarchy-derived
 fallback assignments are minimized. A live phase indicator and a small
-generic moon-dancing stick figure remain visible while the solver works.
+generic stick figure doing jumping jacks remain visible while the solver works.
 
 The shared interactive solve budget is five seconds. A timed solve may remain
 `FEASIBLE`, but a later continuity phase cannot replace an already legal

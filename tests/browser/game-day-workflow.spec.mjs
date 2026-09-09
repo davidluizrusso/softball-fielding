@@ -38,7 +38,7 @@ async function downloadText(download) {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-test("issues #1, #3, and #19 keep the complete game-day outcome visible and current", async ({ page }, testInfo) => {
+test("issues #1, #3, #19, and #26 keep progress readable and the outcome current", async ({ page }, testInfo) => {
   test.setTimeout(90_000);
   await page.goto("/");
   const optimize = page.getByRole("button", { name: "Optimize seven innings" });
@@ -52,8 +52,9 @@ test("issues #1, #3, and #19 keep the complete game-day outcome visible and curr
   await expect(status).toHaveAttribute("aria-atomic", "true");
   await expect(status).toHaveText(/\S/);
   await expect(dancer).toHaveAttribute("aria-hidden", "true");
-  await expect(dancer).toHaveAttribute("data-facing", "right");
-  await expect(dancer).toHaveAttribute("data-motion", "moon-dance");
+  await expect(dancer).toHaveAttribute("data-motion", "jumping-jacks");
+  await expect(dancer).toHaveAttribute("data-pose-count", "2");
+  await expect(dancer).not.toHaveAttribute("data-facing", /.+/);
   await expect(dancer.locator("svg")).toHaveAttribute("focusable", "false");
   expect(await status.evaluate((statusElement, dancerElement) => Boolean(
     statusElement.compareDocumentPosition(dancerElement)
@@ -67,7 +68,7 @@ test("issues #1, #3, and #19 keep the complete game-day outcome visible and curr
   )).toBe("none");
   expect(await dancer.locator(".optimization-dancer__body").evaluate(
     (body) => getComputedStyle(body).animationName,
-  )).toBe("softball-moon-body");
+  )).toBe("softball-jumping-jack-body");
   expect(await dancer.evaluate((element) => {
     const style = getComputedStyle(element);
     return {
@@ -76,25 +77,36 @@ test("issues #1, #3, and #19 keep the complete game-day outcome visible and curr
       width: style.width,
     };
   })).toEqual({ height: "84px", overflow: "hidden", width: "128px" });
-  const footCycles = await dancer.locator(
-    ".optimization-dancer__foot--front, .optimization-dancer__foot--rear",
-  ).evaluateAll((feet) => feet.map((foot) => ({
-    animationName: getComputedStyle(foot).animationName,
-    keyframes: foot.getAnimations()[0].effect.getKeyframes(),
+  const limbCycles = await dancer.locator(
+    ".optimization-dancer__arm--left, .optimization-dancer__arm--right, "
+      + ".optimization-dancer__leg--left, .optimization-dancer__leg--right",
+  ).evaluateAll((limbs) => limbs.map((limb) => ({
+    animationDuration: getComputedStyle(limb).animationDuration,
+    animationFillMode: getComputedStyle(limb).animationFillMode,
+    animationIterationCount: getComputedStyle(limb).animationIterationCount,
+    animationName: getComputedStyle(limb).animationName,
+    keyframes: limb.getAnimations()[0].effect.getKeyframes(),
   })));
-  expect(footCycles.map((cycle) => cycle.animationName)).toEqual([
-    "softball-moon-foot-rear",
-    "softball-moon-foot-front",
+  expect(limbCycles.map((cycle) => cycle.animationName)).toEqual([
+    "softball-jumping-jack-arm-left",
+    "softball-jumping-jack-arm-right",
+    "softball-jumping-jack-leg-left",
+    "softball-jumping-jack-leg-right",
   ]);
-  for (const cycle of footCycles) {
-    expect(cycle.keyframes).toHaveLength(5);
-    expect(new Set(cycle.keyframes.map((frame) => frame.transform)).size).toBeGreaterThan(2);
+  for (const cycle of limbCycles) {
+    expect(cycle.animationDuration).toBe("1.2s");
+    expect(cycle.animationFillMode).toBe("forwards");
+    expect(cycle.animationIterationCount).toBe("4");
+    expect(cycle.keyframes).toHaveLength(4);
+    expect(new Set(cycle.keyframes.map((frame) => frame.transform)).size).toBe(2);
     expect(cycle.keyframes.every(
-      (frame) => /matrix|translateX/.test(frame.transform),
+      (frame) => /matrix|rotate/.test(frame.transform),
     )).toBe(true);
+    expect(cycle.keyframes[0].transform).toBe(cycle.keyframes.at(-1).transform);
+    expect(cycle.keyframes[0].transform).not.toBe(cycle.keyframes[1].transform);
   }
-  expect(footCycles[0].keyframes[0].transform).not.toBe(
-    footCycles[1].keyframes[0].transform,
+  expect(limbCycles[0].keyframes[1].transform).not.toBe(
+    limbCycles[1].keyframes[1].transform,
   );
 
   const resultHeading = page.getByRole("heading", { name: "Optimized lineup" });
@@ -249,7 +261,7 @@ test("issues #1, #3, and #19 keep the complete game-day outcome visible and curr
   await expect(page.getByText(/Open \(no gender fielding minimums\) profile/)).toBeVisible();
 });
 
-test("issues #21 and #25 keep the moon dancer static for reduced motion", async ({ page }, testInfo) => {
+test("issues #21 and #26 keep jumping jacks static for reduced motion", async ({ page }, testInfo) => {
   test.setTimeout(60_000);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
@@ -264,10 +276,13 @@ test("issues #21 and #25 keep the moon dancer static for reduced motion", async 
   await expect(status).toBeVisible();
   for (const animatedPart of await dancer.locator(
     ".optimization-dancer__body, .optimization-dancer__arm, "
-      + ".optimization-dancer__leg, .optimization-dancer__foot",
+      + ".optimization-dancer__leg",
   ).all()) {
     expect(await animatedPart.evaluate(
       (element) => getComputedStyle(element).animationName,
+    )).toBe("none");
+    expect(await animatedPart.evaluate(
+      (element) => getComputedStyle(element).transform,
     )).toBe("none");
   }
 

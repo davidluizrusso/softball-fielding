@@ -114,7 +114,7 @@ def rendered_markup_contains(app, fragment):
     return any(fragment in str(markdown.value) for markdown in app.markdown)
 
 
-def test_optimization_indicator_source_is_status_first_and_moon_dances():
+def test_optimization_indicator_source_is_status_first_and_does_jumping_jacks():
     source = APP_PATH.read_text(encoding="utf-8")
     readme = (APP_PATH.parent / "README.md").read_text(encoding="utf-8")
 
@@ -123,12 +123,15 @@ def test_optimization_indicator_source_is_status_first_and_moon_dances():
     )
     assert 'role="status"' in source
     assert 'aria-live="polite" aria-atomic="true"' in source
-    assert 'data-motion="moon-dance" data-facing="right"' in source
-    assert "@keyframes softball-moon-foot-front" in source
-    assert "@keyframes softball-moon-foot-rear" in source
-    assert "translateX(-2px) rotate(0deg)" in source
-    assert "translateX(2px) rotate(28deg)" in source
+    assert 'data-motion="jumping-jacks" data-pose-count="2"' in source
+    assert "@keyframes softball-jumping-jack-arm-left" in source
+    assert "@keyframes softball-jumping-jack-arm-right" in source
+    assert "rotate(110deg)" in source
+    assert "rotate(-110deg)" in source
+    assert "1.2s ease-in-out 4 forwards" in source
     assert "transform-box: fill-box" in source
+    assert "softball-moon" not in source
+    assert "moon-dance" not in source
     assert "softball-side-glide" not in source
     assert "@media (prefers-reduced-motion: reduce)" in source
     assert "coach" not in source.casefold()
