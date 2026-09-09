@@ -53,7 +53,7 @@ test("issues #1, #3, and #19 keep the complete game-day outcome visible and curr
   await expect(status).toHaveText(/\S/);
   await expect(dancer).toHaveAttribute("aria-hidden", "true");
   await expect(dancer).toHaveAttribute("data-facing", "right");
-  await expect(dancer).toHaveAttribute("data-motion", "backward-glide");
+  await expect(dancer).toHaveAttribute("data-motion", "moon-dance");
   await expect(dancer.locator("svg")).toHaveAttribute("focusable", "false");
   expect(await status.evaluate((statusElement, dancerElement) => Boolean(
     statusElement.compareDocumentPosition(dancerElement)
@@ -64,7 +64,10 @@ test("issues #1, #3, and #19 keep the complete game-day outcome visible and curr
   expect(dancerBox.y).toBeGreaterThanOrEqual(statusBox.y + statusBox.height);
   expect(await dancer.locator(".optimization-dancer__figure").evaluate(
     (figure) => getComputedStyle(figure).animationName,
-  )).toBe("softball-side-glide");
+  )).toBe("none");
+  expect(await dancer.locator(".optimization-dancer__body").evaluate(
+    (body) => getComputedStyle(body).animationName,
+  )).toBe("softball-moon-body");
   expect(await dancer.evaluate((element) => {
     const style = getComputedStyle(element);
     return {
@@ -73,13 +76,26 @@ test("issues #1, #3, and #19 keep the complete game-day outcome visible and curr
       width: style.width,
     };
   })).toEqual({ height: "84px", overflow: "hidden", width: "128px" });
-  const keyframes = await dancer.locator(".optimization-dancer__figure").evaluate(
-    (figure) => figure.getAnimations()[0].effect.getKeyframes(),
+  const footCycles = await dancer.locator(
+    ".optimization-dancer__foot--front, .optimization-dancer__foot--rear",
+  ).evaluateAll((feet) => feet.map((foot) => ({
+    animationName: getComputedStyle(foot).animationName,
+    keyframes: foot.getAnimations()[0].effect.getKeyframes(),
+  })));
+  expect(footCycles.map((cycle) => cycle.animationName)).toEqual([
+    "softball-moon-foot-rear",
+    "softball-moon-foot-front",
+  ]);
+  for (const cycle of footCycles) {
+    expect(cycle.keyframes).toHaveLength(5);
+    expect(new Set(cycle.keyframes.map((frame) => frame.transform)).size).toBeGreaterThan(2);
+    expect(cycle.keyframes.every(
+      (frame) => /matrix|translateX/.test(frame.transform),
+    )).toBe(true);
+  }
+  expect(footCycles[0].keyframes[0].transform).not.toBe(
+    footCycles[1].keyframes[0].transform,
   );
-  expect(keyframes).toHaveLength(2);
-  expect(keyframes.every(
-    (frame) => /matrix|translateX/.test(frame.transform),
-  )).toBe(true);
 
   const resultHeading = page.getByRole("heading", { name: "Optimized lineup" });
   await expect(resultHeading).toBeVisible({ timeout: 30_000 });
@@ -233,7 +249,7 @@ test("issues #1, #3, and #19 keep the complete game-day outcome visible and curr
   await expect(page.getByText(/Open \(no gender fielding minimums\) profile/)).toBeVisible();
 });
 
-test("issue #21 keeps the side-profile figure static for reduced motion", async ({ page }, testInfo) => {
+test("issues #21 and #25 keep the moon dancer static for reduced motion", async ({ page }, testInfo) => {
   test.setTimeout(60_000);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
@@ -247,7 +263,8 @@ test("issue #21 keeps the side-profile figure static for reduced motion", async 
   await expect(dancer).toBeVisible({ timeout: 10_000 });
   await expect(status).toBeVisible();
   for (const animatedPart of await dancer.locator(
-    ".optimization-dancer__figure, .optimization-dancer__arm, .optimization-dancer__leg",
+    ".optimization-dancer__body, .optimization-dancer__arm, "
+      + ".optimization-dancer__leg, .optimization-dancer__foot",
   ).all()) {
     expect(await animatedPart.evaluate(
       (element) => getComputedStyle(element).animationName,
