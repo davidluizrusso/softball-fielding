@@ -63,7 +63,7 @@ def test_stale_package_graph_is_atomically_reloaded_before_team_red_solve():
             max_solve_seconds=15.0,
         )
 
-        assert len(roster) == 13
+        assert len(roster) == 14
         assert all(player.gender == "Unspecified" for player in players)
         assert len(result.assignments) == 7
         print("stale graph repaired and Team Red optimized")

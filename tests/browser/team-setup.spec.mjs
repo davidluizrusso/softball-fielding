@@ -15,6 +15,7 @@ const TEAM_RED_NAMES = [
   "AP",
   "Chris",
   "Marty",
+  "Shaz",
 ];
 
 async function activate(locator, testInfo) {

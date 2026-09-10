@@ -30,7 +30,7 @@ def team_red_players(*, absent=()):
     ("absent", "position"),
     [
         (("Dung",), "P"),
-        (("Justin", "Ryan"), "1B"),
+        (("Andrew", "Justin", "Ryan"), "1B"),
         (("AP", "Marty"), "SS"),
     ],
 )

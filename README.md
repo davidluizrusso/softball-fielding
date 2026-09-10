@@ -17,7 +17,7 @@ Optimization supports up to 15 available players per game.
 
 The neutral deployment begins with an explicit choice: load Here For The Beer,
 load Team Red, or start with an empty roster. Team Red loads its approved
-13-player roster under locked Open rules and does not collect gender. Changing
+14-player roster under locked Open rules and does not collect gender. Changing
 setups requires confirmation and replaces only the current browser session;
 it never modifies another team or another visitor's session.
 
@@ -97,5 +97,7 @@ See [SPEC.md](SPEC.md) for the lineup rules and optimization priorities.
 [Open-rules optimization paper](docs/open_rules_fielding_optimization.pdf)
 provides the formal model, Team Red case study, and verification evidence; its
 [LaTeX source](docs/open_rules_fielding_optimization.tex) is checked in beside
-it. The older papers in `docs/` are retained only as historical pre-hierarchy
+it. The paper's Team Red case study uses the original 13-player roster; current
+defaults are in `team_red_roster.csv` (14 players, including Shaz). The older
+papers in `docs/` are retained only as historical pre-hierarchy
 examples and do not describe the current optimizer.

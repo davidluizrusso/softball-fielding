@@ -199,7 +199,7 @@ def test_neutral_deployment_requires_setup_without_roster_leak(
     ("setup_key", "expected_count", "expected_profile"),
     [
         ("here-for-the-beer", 15, "coed"),
-        ("team-red", 13, "open"),
+        ("team-red", 14, "open"),
         ("blank", 0, "coed"),
     ],
 )
@@ -320,7 +320,7 @@ def test_team_red_hides_gender_and_optimizes_under_locked_open_rules(monkeypatch
     )
     assert app.session_state["roster"] == team_red_roster()
     assert app.session_state["league-profile"] == "open"
-    assert app.session_state["next_player_id"] == 14
+    assert app.session_state["next_player_id"] == 15
     assert app.session_state["result"] is None
 
 
@@ -423,7 +423,7 @@ def test_neutral_setup_change_cancel_preserves_and_confirm_reinitializes(monkeyp
     assert app.session_state["active_setup"] == "team-red"
     assert app.session_state["roster"] == expected
     assert app.session_state["league-profile"] == "open"
-    assert app.session_state["next_player_id"] == 14
+    assert app.session_state["next_player_id"] == 15
     assert availability_checkbox(app, "player-1").value
     assert app.session_state["result"] is None
     assert app.session_state["result_identity"] is None
@@ -577,7 +577,7 @@ def test_app_surfaces_optimizer_errors_without_showing_a_stale_lineup(monkeypatc
     ("absent_names", "position"),
     [
         (("Dung",), "P"),
-        (("Justin", "Ryan"), "1B"),
+        (("Andrew", "Justin", "Ryan"), "1B"),
         (("AP", "Marty"), "SS"),
     ],
 )

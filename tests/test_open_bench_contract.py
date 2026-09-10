@@ -11,9 +11,9 @@ from softball_fielding.team_setups import team_red_roster
 
 
 TEAM_RED_PREFERENCES = {
-    "David R": ("2B", "RC"),
+    "David R": ("2B", "3B", "RC"),
     "Justin": ("1B", "RC"),
-    "Andrew": ("C", "2B", "RF"),
+    "Andrew": ("1B", "2B"),
     "Kevin": ("2B", "LC"),
     "David": ("RF",),
     "Dung": ("P",),
@@ -24,6 +24,7 @@ TEAM_RED_PREFERENCES = {
     "AP": ("SS", "LF"),
     "Chris": ("C", "2B", "RF"),
     "Marty": ("SS", "LC"),
+    "Shaz": ("C", "RF"),
 }
 
 
@@ -127,7 +128,7 @@ def test_team_red_template_rejects_a_player_without_preferences(
         team_red_roster()
 
 
-def test_team_red_open_schedule_is_fair_and_minimizes_state_switches():
+def test_current_team_red_open_schedule_is_legal_and_fair():
     roster = team_red_roster()
     players = [
         Player(
@@ -140,6 +141,28 @@ def test_team_red_open_schedule_is_fair_and_minimizes_state_switches():
 
     result = optimize_game(players, profile=OPEN_RULES)
 
+    assert result.solver_status in {"OPTIMAL", "FEASIBLE"}
+    assert result.active_positions == POSITIONS
+    assert_open_assignment_invariants(result, players)
+    assert Counter(result.player_innings.values()) == Counter({4: 2, 5: 11, 7: 1})
+    assert result.player_innings["Dung"] == INNINGS
+    assert all(inning["P"] == "Dung" for inning in result.assignments)
+    assert all(len(positions) <= 2 for positions in result.player_positions.values())
+
+
+def test_original_team_red_open_schedule_is_fair_and_minimizes_state_switches():
+    # Preserve the original 13-player benchmark and its exact continuity targets.
+    preferences = {
+        name: positions
+        for name, positions in TEAM_RED_PREFERENCES.items()
+        if name != "Shaz"
+    }
+    preferences.update({"David R": ("2B", "RC"), "Andrew": ("C", "2B", "RF")})
+    players = [
+        Player(name, "Unspecified", frozenset(positions))
+        for name, positions in preferences.items()
+    ]
+    result = optimize_game(players, profile=OPEN_RULES)
     assert result.solver_status in {"OPTIMAL", "FEASIBLE"}
     assert result.active_positions == POSITIONS
     assert_open_assignment_invariants(result, players)
