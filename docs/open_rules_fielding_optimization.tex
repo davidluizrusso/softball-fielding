@@ -1,59 +1,57 @@
 \documentclass[11pt]{article}
 
-\usepackage[letterpaper,margin=0.86in]{geometry}
+\usepackage[letterpaper,margin=1in]{geometry}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage{amsmath,amssymb}
+\usepackage{amsthm}
 \usepackage{booktabs}
 \usepackage{enumitem}
+\usepackage{float}
+\usepackage{graphicx}
 \usepackage{microtype}
-\usepackage{setspace}
 \usepackage{xcolor}
 \usepackage{xurl}
 \usepackage[colorlinks=true,linkcolor=blue!55!black,urlcolor=blue!55!black,
             citecolor=blue!55!black]{hyperref}
 
-\setstretch{1.035}
-\setlength{\parindent}{0pt}
-\setlength{\parskip}{5pt}
-\setlist{nosep,leftmargin=1.55em}
+\setlength{\parindent}{1.25em}
+\setlength{\parskip}{0pt}
+\setlist{itemsep=1pt,topsep=3pt,leftmargin=1.55em}
 \newcommand{\code}[1]{\texttt{#1}}
-\newcommand{\Bench}{\mathrm{Bench}}
+\newcommand{\Bench}{\mathsf{B}}
+\newtheorem{proposition}{Proposition}
+\newtheorem{remark}{Remark}
+\renewcommand{\qedsymbol}{$\blacksquare$}
 
-\title{\vspace{-1.25cm}\textbf{A Lexicographic Constraint-Programming Model for\\
-Open-Division Slowpitch Softball Defensive Lineups}}
-\author{David Russo}
-\date{September 2026}
+\title{\vspace{-1.25cm}\textbf{Lexicographic Constraint Programming for\\
+Recreational Softball Defensive Lineups: A Team Red Case Study}}
+\author{David Russo\\\small Technical report}
+\date{September 2026, revised September 11, 2026}
 
 \begin{document}
 \maketitle
 \vspace{-0.75cm}
 
 \begin{abstract}
-This paper specifies and evaluates a binary constraint-programming model for
-constructing a seven-inning defensive schedule in open-division slowpitch
-softball. The setting has eight to fifteen available players and up to ten
-simultaneous defensive positions. Unlike the associated co-ed rules profile,
-the Open profile imposes no gender-dependent roster or placement constraint.
-The principal difficulty is consequently not lineup legality alone, but the
-ordered reconciliation of equitable participation, stated positional
-preferences, and operational continuity. Explicit preferences are augmented
-by a deliberately asymmetric hierarchy of defensible fallback positions;
-pitcher and first base remain opt-in, whereas every player is eligible to
-catch. A lexicographic objective first minimizes playing-time spread and
-deviation, then minimizes non-explicit fallback assignments, then penalizes
-short runs, excessive positional variety, and state transitions. The Bench is
-modeled as a genuine continuity state, so a field-to-Bench movement is treated
-as a switch and consecutive bench innings are favored. The model is solved by
-OR-Tools CP-SAT using a nominal interactive solver-phase target and reports a
-conservative distinction between proven optimal and merely feasible results.
-For the current fourteen-player Team Red instance, the implementation produces
-the provably fairest inning-count distribution, uses no fallback assignment,
-and keeps every player at no more than two fielding positions. Automated model,
-mutation, application-state, and mobile-browser tests establish the principal
-claims.
-The optimizer's returned schedule is the operational output; the application
-contains no subsequent captain-approval or manual-review stage.
+We study the construction of seven-inning defensive lineups for recreational
+slowpitch softball when the available roster exceeds the number of fielding
+positions. The problem requires a legal assignment in every inning while
+balancing playing time, respecting player-reported positional preferences, and
+limiting disruptive field-position and bench transitions. We formulate the
+problem as a constraint-programming model with a strict lexicographic
+objective: playing-time inequity is minimized first, followed by non-explicit
+assignments and several measures of lineup continuity. Eligibility distinguishes
+explicitly selected positions from directionally inferred alternatives, while
+pitcher and first base remain opt-in assignments. The model is implemented in
+OR-Tools CP-SAT through bounded, status-aware phases suitable for interactive
+use. For the fourteen-player Team Red snapshot studied here, the minimum
+playing-time spread is three innings and the minimum scaled absolute deviation
+is 56. A recorded legal incumbent fills all 70 defensive slots without a
+non-explicit assignment, uses no more than two field positions per player, and
+has continuity vector $(3,0,15,20,20)$. Its application status is
+\emph{FEASIBLE}: the fairness and fallback values are certified, but complete
+lexicographic optimality of the continuity vector is not claimed.
 \end{abstract}
 
 \textbf{Keywords:} sports scheduling; constraint programming; CP-SAT;
@@ -81,23 +79,31 @@ not necessarily fair.
 
 The implementation resolves those conflicts by priority rather than by an
 opaque weighted compromise. The order is substantive: legality precedes
-fairness, fairness precedes explicit-position fidelity, and both precede
-continuity. Lower-priority improvements are prohibited from purchasing a
-worse higher-priority result. This formulation is particularly appropriate
+fairness, fairness precedes aggregate non-explicit assignment count, and both
+precede continuity. Lower-priority improvements are prohibited from purchasing
+a worse higher-priority result. This formulation is particularly appropriate
 for an interactive tool, where a user should not have to interpret a hidden
 exchange rate between one inning of inequity and one position change.
 
-The contribution is an implemented, tested formulation with four notable
-features:
+This work makes three contributions:
 \begin{enumerate}
-    \item a profile-specific Open lineup rule supporting eight through fifteen
-    available players;
-    \item explicit separation of stated preferences from hierarchy-derived
-    fallback eligibility;
-    \item continuity modeling over both field positions and the Bench; and
-    \item bounded, status-aware solution stages suitable for last-minute use
-    in a mobile web application.
+    \item it formulates recreational defensive scheduling as a finite-horizon
+    state-assignment problem with an explicit bench state;
+    \item it separates preference declarations from directionally inferred
+    eligibility and orders fairness, non-explicit assignment, and continuity
+    objectives lexicographically; and
+    \item it develops a bounded CP-SAT procedure that preserves certified
+    higher-priority values while returning a legal incumbent under an
+    interactive time budget.
 \end{enumerate}
+
+The presentation follows standard assignment-modeling practice
+\cite{bertsimas,williams}, but the repeated within-game assignment, directed
+eligibility expansion, and explicit bench state produce an application-specific
+multiobjective structure. Mathematical propositions establish structural and
+instance-specific bounds; solver statuses certify only those objective tiers
+proved optimal; regression tests check implementation conformance; and timed
+experiments characterize, rather than guarantee, latency and incumbent quality.
 
 \section{Operational Assumptions}
 
@@ -125,20 +131,24 @@ The model optimizes one game at a time under the following assumptions.
     again, but no approval gate or hand edit modifies the output.
 \end{itemize}
 
-Let $N$ denote the number of available players and $K$ the number of active
-fielding positions. The Open lineup rule is fixed before optimization:
+Let $N$ denote the number of available players. The active position set
+$\mathcal S(N)$ and its cardinality $K(N)=|\mathcal S(N)|$ are fixed before
+optimization according to Table~\ref{tab:active-positions}.
 
-\begin{center}
+\begin{table}[htbp]
+\centering
+\caption{Active defensive positions under the Open rules profile.}
+\label{tab:active-positions}
 \begin{tabular}{ccl}
 \toprule
-Available players $N$ & Fielders $K$ & Active position set\\
+Available players $N$ & $K(N)$ & $\mathcal S(N)$\\
 \midrule
 $10\leq N\leq15$ & 10 & P, C, 1B, 2B, 3B, SS, LF, LC, RC, RF\\
 $N=9$ & 9 & all standard positions except RF\\
 $N=8$ & 8 & all standard positions except C and RF\\
 \bottomrule
 \end{tabular}
-\end{center}
+\end{table}
 
 An input with fewer than eight or more than fifteen available players is
 rejected before the constraint model is constructed. If ten or more players
@@ -151,36 +161,39 @@ Let the complete position universe be
 \[
 \mathcal{S}=\{\mathrm{P,C,1B,2B,3B,SS,LF,LC,RC,RF}\},
 \]
-and let $\mathcal{S}_K\subseteq\mathcal{S}$ be the active set determined above.
-For player $p$, let $Q_p\subseteq\mathcal{S}$ be the explicitly selected
-preferences. The fallback hierarchy is intentionally directional:
+and let $\varnothing\neq Q_p\subseteq\mathcal S$ be player $p$'s explicitly
+selected positions. Define the direct eligibility-expansion map $H_f$ by
 \[
 \begin{aligned}
-\mathrm{SS}&\succ\{\mathrm{3B,2B}\}, &
-\mathrm{3B}&\succ\{\mathrm{2B}\},\\
-\mathrm{LC}&\succ\{\mathrm{LF,RC,RF}\}, &
-\mathrm{LF}&\succ\{\mathrm{RC,RF}\},\\
-\mathrm{RC}&\succ\{\mathrm{RF}\}.&&
+H_f(\mathrm{SS})&=\{\mathrm{3B,2B}\}, &
+H_f(\mathrm{3B})&=\{\mathrm{2B}\},\\
+H_f(\mathrm{LC})&=\{\mathrm{LF,RC,RF}\}, &
+H_f(\mathrm{LF})&=\{\mathrm{RC,RF}\},\\
+H_f(\mathrm{RC})&=\{\mathrm{RF}\}, &
+H_f(s)&=\varnothing\quad\text{otherwise}.
 \end{aligned}
 \]
-Here $a\succ B$ means that explicitly selecting $a$ permits assignment to
-members of $B$ as fallbacks. The relation is not symmetric. It also carries no
-numerical distance: every inferred assignment has one unit of fallback cost.
-Continuity therefore may not increase the secured aggregate fallback count
-merely to obtain a smoother schedule. Among schedules having the same aggregate
-count, however, continuity may choose RF for an LC-preferring player or
-redistribute which player receives a fallback. The current model does not
-optimize individual fallback burden.
+Thus selecting SS, for example, implies eligibility at 3B and 2B; the notation
+denotes eligibility expansion, not preference ranking or dominance. The map is
+applied directly rather than transitively:
+$h(Q_p)=\bigcup_{s\in Q_p}H_f(s)$.
+Every eligible non-explicit assignment---whether produced by $H_f$, universal
+catcher eligibility, or the eight-player rule below---has unit fallback cost.
+The lexicographic objective fixes the optimal or best-found aggregate fallback
+value before continuity is optimized. Among schedules having that same value,
+continuity may choose RF for an LC-preferring player or redistribute which
+player receives a fallback. The model does not separately optimize the maximum
+or distribution of individual fallback burden.
 
-Define $h(Q_p)$ as the union of all positions directly implied by the selected
-positions under the displayed hierarchy. The eligible active set is
-\[
-E_p = \bigl(Q_p\cup h(Q_p)\cup\{\mathrm{C}\}\cup R_p\bigr)
-      \cap\mathcal{S}_K,
-\]
+The eligible active set is
+\begin{equation}
+E_p(N) = \bigl(Q_p\cup h(Q_p)\cup\{\mathrm{C}\}\cup R_p(N)\bigr)
+      \cap\mathcal{S}(N),
+\label{eq:eligibility}
+\end{equation}
 where
 \[
-R_p =
+R_p(N) =
 \begin{cases}
 \{\mathrm{RC}\}, & N=8\text{ and }\mathrm{RF}\in Q_p,\\
 \varnothing, & \text{otherwise.}
@@ -193,7 +206,7 @@ $h(\cdot)$ and must be explicitly selected.
 
 The fallback set is
 \[
-F_p=E_p\setminus Q_p.
+F_p(N)=E_p(N)\setminus Q_p.
 \]
 The model may assign $p$ to $F_p$ to preserve feasibility or fairness, but it
 minimizes such innings before evaluating any continuity term. Thus eligibility
@@ -201,6 +214,32 @@ is broader than preference without erasing the semantic distinction between
 the two.
 
 \section{Constraint-Programming Formulation}
+
+For a fixed accepted roster size $N$, write $\mathcal S_N=\mathcal S(N)$,
+$K=K(N)$, $E_p=E_p(N)$, and $F_p=F_p(N)$. Table~\ref{tab:notation}
+collects the principal notation.
+
+\begin{table}[htbp]
+\centering
+\caption{Principal sets, variables, and aggregate quantities.}
+\label{tab:notation}
+\small
+\begin{tabular}{ll}
+\toprule
+Symbol & Definition\\
+\midrule
+$\mathcal P,\mathcal I,\mathcal S_N$ & players, innings, and active positions\\
+$Q_p,E_p,F_p$ & explicit, eligible, and eligible non-explicit positions for $p$\\
+$x_{ips},b_{ip}$ & field-assignment and bench-state indicators\\
+$t_p,d_p,\Delta$ & innings played, scaled deviation, and playing-time spread\\
+$u_{ps},v_p,e_p$ & position-use indicator, distinct positions, and excess above two\\
+$f$ & total eligible non-explicit assignment innings\\
+$o_1,o_2$ & numbers of exact one- and two-inning state runs\\
+$v,e,a$ & aggregate distinct positions, excess positions, and transitions\\
+$H=7K$ & total fielding slots\\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Sets and decision variables}
 
@@ -218,24 +257,54 @@ variable $b_{ip}$ equals one exactly when player $p$ is on the Bench in inning
 $i$. Omitting $x$ variables for positions outside $E_p$ makes an ineligible
 fielding assignment structurally impossible.
 
+All variables denoted by $x$, $b$, $w$, $a$, $q^{(1)}$, $q^{(2)}$, and $u$
+are binary. The count variables satisfy $t_p\in\{0,\ldots,7\}$,
+$v_p\in\{0,\ldots,K\}$, and
+$e_p\in\{0,\ldots,\max(0,K-2)\}$.
+
 Each active position is filled exactly once:
-\[
+\begin{equation}
 \sum_{p:s\in E_p}x_{ips}=1
-\qquad\forall i\in\mathcal{I},\ s\in\mathcal{S}_K.
-\]
+\qquad\forall i\in\mathcal{I},\ s\in\mathcal{S}_N.
+\label{eq:position-coverage}
+\end{equation}
 Each player occupies exactly one field-or-Bench state:
-\[
+\begin{equation}
 b_{ip}+\sum_{s\in E_p}x_{ips}=1
 \qquad\forall i\in\mathcal{I},\ p\in\mathcal{P}.
-\]
-The latter equality simultaneously prevents double assignment and explicitly
+\label{eq:player-state}
+\end{equation}
+Constraint~\eqref{eq:player-state} simultaneously prevents double assignment and explicitly
 represents the Bench. Because the Open profile has no gender rule, the model
 contains no gender-count or gender-placement constraint.
 
-Before these variables are constructed, a preflight procedure verifies that
-each active position appears in at least one $E_p$. Duplicate player names,
-blank names, invalid positions, and out-of-range player counts are likewise
-rejected with actionable messages.
+Before these variables are constructed, input validation rejects blank or
+duplicate names, empty or invalid preference sets, and out-of-range player
+counts. A distinct lineup preflight then considers the bipartite graph
+$G=(\mathcal S_N\cup\mathcal P,A)$, where $(s,p)\in A$ if and only if
+$s\in E_p$.
+
+\begin{proposition}[One-inning matching criterion]
+\label{prop:matching}
+Under the Open profile, a legal seven-inning schedule satisfying only the hard
+assignment constraints exists if and only if $G$ has a matching that covers
+$\mathcal S_N$. Equivalently, for every $T\subseteq\mathcal S_N$,
+\[
+\left|\bigcup_{s\in T}\{p\in\mathcal P:s\in E_p\}\right|\ge |T|.
+\]
+\end{proposition}
+\begin{proof}
+Constraints~\eqref{eq:position-coverage}--\eqref{eq:player-state} restricted to
+one inning are precisely a matching covering $\mathcal S_N$; Hall's theorem
+gives the stated equivalence. Availability and eligibility are invariant across
+innings, and the model has no cross-inning hard constraint. Repeating a covering
+matching therefore constructs a legal seven-inning schedule. Conversely, the
+assignment in any one inning of a legal schedule supplies such a matching.
+\end{proof}
+
+The implementation first reports any uncovered singleton position. Otherwise,
+it reports a deterministic minimum-cardinality Hall-deficient subset when no
+covering matching exists.
 
 \subsection{Playing-time quantities}
 
@@ -261,7 +330,7 @@ from $H/N$, up to the positive factor $N$.
 
 \subsection{State runs and transitions}
 
-For continuity purposes, each player has a state alphabet
+For continuity purposes, each player has the state set
 \[
 \mathcal{R}_p=E_p\cup\{\Bench\}.
 \]
@@ -284,8 +353,8 @@ a_{ipr}\geq w_{ipr}-w_{i-1,p,r}.
 Exactly one new state starts whenever adjacent innings have different states.
 The first inning is not charged as a transition.
 
-With boundary values $w_{0pr}=w_{8pr}=0$, a one-inning-run indicator
-$q^{(1)}_{ipr}$ recognizes the pattern $0,1,0$:
+With boundary values $w_{0pr}=w_{8pr}=0$, the binary one-inning-run indicator
+$q^{(1)}_{ipr}$, for $i\in\{1,\ldots,7\}$, recognizes the pattern $0,1,0$:
 \[
 \begin{aligned}
 q^{(1)}_{ipr}&\leq w_{ipr},\\
@@ -295,83 +364,132 @@ q^{(1)}_{ipr}&\geq
 w_{ipr}-w_{i-1,p,r}-w_{i+1,p,r}.
 \end{aligned}
 \]
-Analogous four-boundary inequalities define $q^{(2)}_{ipr}$ for an exact
-two-inning pattern $0,1,1,0$. Both definitions apply to field positions and
-the Bench. These variables measure rather than prohibit short runs; feasibility
-and higher-priority fairness remain paramount.
+For $i\in\{1,\ldots,6\}$, the binary two-inning-run indicator
+$q^{(2)}_{ipr}$ recognizes the exact pattern $0,1,1,0$ through
+\[
+\begin{aligned}
+q^{(2)}_{ipr}&\leq w_{ipr}, &
+q^{(2)}_{ipr}&\leq w_{i+1,p,r},\\
+q^{(2)}_{ipr}&\leq 1-w_{i-1,p,r}, &
+q^{(2)}_{ipr}&\leq 1-w_{i+2,p,r},\\
+q^{(2)}_{ipr}&\geq w_{ipr}+w_{i+1,p,r}
+                -w_{i-1,p,r}-w_{i+2,p,r}-1.
+\end{aligned}
+\]
+Binary domains make each linearization an if-and-only-if characterization.
+Both definitions apply to field positions and $\Bench$. They measure rather
+than prohibit short runs; feasibility and higher-priority fairness remain
+paramount.
 
 \subsection{Positional variety}
 
 Let $u_{ps}$ equal one if player $p$ uses field position $s$ at least once.
 The standard linkage is
 \[
-x_{ips}\leq u_{ps}\quad\forall i,p,s,
+x_{ips}\leq u_{ps}\quad
+\forall p\in\mathcal P,\ s\in E_p,\ i\in\mathcal I,
 \qquad
-u_{ps}\leq\sum_i x_{ips}\quad\forall p,s.
+u_{ps}\leq\sum_{i\in\mathcal I}x_{ips}\quad
+\forall p\in\mathcal P,\ s\in E_p.
 \]
-Define the number of distinct field positions as
+Define the integer number of distinct field positions as
 \[
 v_p=\sum_{s\in E_p}u_{ps}.
 \]
-The implementation gives the bounded integer $e_p$ the constraints
+Mathematically, $e_p=\max\{v_p-2,0\}$. The implementation gives the
+nonnegative bounded integer $e_p$ the constraints
 \[
 e_p\geq v_p-2,\qquad e_p\geq0.
 \]
-Minimization makes this lower bound tight for an optimized incumbent; equality
-to $\max(v_p-2,0)$ is not imposed as a primitive constraint.
+Because its objective coefficient is positive, the lower bound is tight in any
+minimizer of the continuity objective; equality is not imposed as a primitive
+constraint. An earlier incumbent retained after a time-limited phase need not
+carry a certificate of this tightness.
 Bench does not contribute to $v_p$ or $e_p$. The two-position target is soft:
-the model may exceed it to protect legality, fairness, or preference fidelity.
+the model may exceed it to protect legality, fairness, or the fallback count.
 
 \section{Lexicographic Objective}
 
-The optimization priorities are, in strict order:
-\begin{enumerate}
-    \item minimize playing-time spread $\Delta$;
-    \item minimize total scaled deviation $\sum_p d_p$;
-    \item minimize fallback innings
-    $f=\sum_{i,p}\sum_{s\in F_p}x_{ips}$;
-    \item minimize one-inning state runs
-    $o_1=\sum_{i,p,r}q^{(1)}_{ipr}$;
-    \item minimize excess field positions $e=\sum_p e_p$;
-    \item minimize exact two-inning state runs
-    $o_2=\sum_{i,p,r}q^{(2)}_{ipr}$;
-    \item minimize total distinct field positions $v=\sum_pv_p$; and
-    \item minimize adjacent state transitions $a=\sum_{i,p,r}a_{ipr}$.
-\end{enumerate}
-
-The first two priorities are combined without ambiguity. If $D^{UB}$ is an
-upper bound on $\sum_p d_p$, the fairness objective is
+Define
 \[
-J_F=(D^{UB}+1)\Delta+\sum_p d_p.
+\begin{aligned}
+f&=\sum_{i\in\mathcal I}\sum_{p\in\mathcal P}
+     \sum_{s\in F_p}x_{ips},\\
+o_1&=\sum_{p\in\mathcal P}\sum_{r\in\mathcal R_p}
+     \sum_{i=1}^{7}q^{(1)}_{ipr}, &
+o_2&=\sum_{p\in\mathcal P}\sum_{r\in\mathcal R_p}
+     \sum_{i=1}^{6}q^{(2)}_{ipr},\\
+e&=\sum_{p\in\mathcal P}e_p, &
+v&=\sum_{p\in\mathcal P}v_p,\\
+a&=\sum_{p\in\mathcal P}\sum_{r\in\mathcal R_p}
+     \sum_{i=2}^{7}a_{ipr}.
+\end{aligned}
 \]
+Let $\boldsymbol y$ collect all decision variables, and let $\mathcal X$ be the
+feasible set defined by the preceding constraints. The ideal mathematical
+problem is
+\begin{equation}
+\underset{\boldsymbol y\in\mathcal X}{\operatorname{lexmin}}\;
+z(\boldsymbol y)=\left(\Delta,\sum_{p\in\mathcal P}d_p,
+f,o_1,e,o_2,v,a\right).
+\label{eq:lex-objective}
+\end{equation}
+Thus fairness has two ordered components, followed by the aggregate fallback
+count and five ordered continuity components.
+
+The implementation scalarizes only within the fairness and continuity blocks.
+Since $0\leq t_p\leq7$, a valid bound is
+$D^{UB}=N\max\{H,|7N-H|\}$. The fairness objective is
+\begin{equation}
+J_F=(D^{UB}+1)\Delta+\sum_p d_p.
+\label{eq:fairness-objective}
+\end{equation}
 The multiplier ensures that any one-unit reduction in spread dominates every
 possible change in total deviation.
 
-After fairness and fallback counts have been secured, the continuity objective
-is
-\[
+After the fairness pair and fallback value have been fixed, the continuity
+objective is
+\begin{equation}
 J_C=c_1o_1+c_e e+c_2o_2+c_vv+a,
-\]
-where each coefficient is constructed to exceed the maximum possible total
-contribution of all lower-order terms. In implementation terms,
+\label{eq:continuity-objective}
+\end{equation}
+using the valid bounds
 \[
-c_v> a^{UB},\quad
-c_2>c_vv^{UB}+a^{UB},\quad
-c_e>c_2o_2^{UB}+c_vv^{UB}+a^{UB},
+a^{UB}=6N,\quad v^{UB}=NK,\quad o_2^{UB}=6N,
+\quad e^{UB}=N\max\{0,K-2\}
 \]
-and $c_1$ analogously dominates the entire remaining expression. Hence
-$J_C$ is a compact encoding of the stated lexicographic order rather than a
-subjective weighted average.
+and the recurrence
+\[
+\begin{aligned}
+c_v&=a^{UB}+1,\\
+c_2&=c_vv^{UB}+a^{UB}+1,\\
+c_e&=c_2o_2^{UB}+c_vv^{UB}+a^{UB}+1,\\
+c_1&=c_ee^{UB}+c_2o_2^{UB}+c_vv^{UB}+a^{UB}+1.
+\end{aligned}
+\]
 
-Three consequences deserve emphasis. First, continuity cannot increase the
-aggregate fallback count secured by the preference phase, although it may
-choose among or redistribute fallbacks at that same count. Second, a Bench run
-is evaluated by the same continuity logic as a field-position run. Third, minimizing two-
-inning runs occurs only after one-inning runs and excess positions, so the
-solver prefers three-or-more-inning blocks when higher priorities permit but
-does not sacrifice an avoidable extra field position merely to lengthen a run.
+\begin{proposition}[Lexicographic equivalence]
+\label{prop:lex-equivalence}
+Minimizing $J_C$ is equivalent to lexicographically minimizing
+$(o_1,e,o_2,v,a)$ over any feasible slice on which the fairness pair and
+fallback value are fixed.
+\end{proposition}
+\begin{proof}
+Each coefficient exceeds the largest possible contribution of all terms to its
+right. Consequently, a unit improvement in the first differing component
+strictly decreases $J_C$, irrespective of every lower-priority component; the
+converse follows by applying the same domination argument to the first differing
+component of two feasible vectors.
+\end{proof}
 
-\section{Bounded Solution Procedure}
+It follows that continuity cannot increase the fixed fallback value, although
+it may redistribute the same number of fallback assignments among players. A
+$\Bench$ run is evaluated by the same logic as a field-position run. Exact
+two-inning runs are minimized only after one-inning runs and excess positions;
+the model therefore never purchases a reduction in $o_2$ by worsening $o_1$ or
+$e$.
+
+\section{Lexicographic Solution Method}
 
 The model is implemented with the OR-Tools CP-SAT solver, which supports
 Boolean and integer constraint models and distinguishes statuses including
@@ -383,31 +501,35 @@ and the implementation's minimum per-phase and subphase allocations of
 0.05--0.1 seconds can make observed elapsed time exceed five seconds. The implementation uses the
 following nominally bounded phases:
 \begin{enumerate}
-    \item \textbf{Arithmetic fairness certificate.} Add
+    \item \textbf{Balanced-count feasibility test.} Write $H=qN+r$, where
+    $0\le r<N$. Without eligibility restrictions, the balanced count multiset
+    has $N-r$ values of $q$ and $r$ values of $q+1$, with
+    $\Delta=\mathbf 1_{\{r>0\}}$ and $\sum_p d_p=2r(N-r)$. Add
     $\lfloor H/N\rfloor\leq t_p\leq\lceil H/N\rceil$ for every player and
-    test feasibility. A feasible assignment proves that the arithmetic lower
-    bounds for spread and scaled absolute deviation are attainable subject to
-    all hard constraints and therefore globally optimal.
+    test feasibility. A feasible assignment certifies that both arithmetic
+    lower bounds remain attainable under all hard constraints.
     \item \textbf{General fairness search.} If that slice cannot be established,
     minimize $J_F$ within the designated fairness budget.
     \item \textbf{Preference phase.} Fix the achieved spread and deviation,
     minimize $f$, and fix the exact fallback incumbent before any continuity
     phase. If optimality is not proved, the incumbent is still frozen rather
     than silently relaxed.
-    \item \textbf{One-inning phase.} For at most 0.25 seconds, test the ideal lower bound in which the
-    only single-inning field run is forced by $t_p=1$ and the only single-
-    inning Bench run is forced by $t_p=6$. Within this hard slice, minimize
-    $e$ as look-ahead to the next tier. If the ideal slice is not found,
+    \item \textbf{One-inning phase.} For at most 0.25 seconds, test the
+    lower-bound slice in which the only single-inning field run is forced by
+    $t_p=1$ and the only single-inning $\Bench$ run is forced by $t_p=6$.
+    Within this hard slice, minimize $e$ as look-ahead to the next tier. If
+    feasibility is not established within that time slice,
     minimize $o_1(E^{UB}+1)+e$ for up to 2.5 seconds, where $E^{UB}$ bounds total excess positions,
     and preserve the one-inning incumbent. If that search produces no
-    candidate, retain the already legal fairness/preference incumbent and
+    candidate, retain the already legal fairness/fallback incumbent and
     continue with the complete continuity objective. The coefficient keeps
     every unit of $o_1$ strictly more important than all possible changes in $e$.
     \item \textbf{Two-position phase.} If the preceding $o_1$ tier is proved,
     test the $e=0$ slice inside the existing phase budget and otherwise
     minimize $e$ with the unspent remainder. A proved value is fixed. If
     $o_1$ remains unproved, do not independently cap $e$: retain the complete
-    ceiling $J_C\leq J_C^{inc}$ so a later improvement in $o_1$ may
+    ceiling $J_C\leq J_C^{inc}$, where $J_C^{inc}$ is the accepted incumbent's
+    integer objective value, so a later improvement in $o_1$ may
     legitimately spend lower-priority quality.
     \item \textbf{Two-inning phase.} When $o_1$ and $e$ are both proved,
     minimize $o_2c_2+vc_v+a$; otherwise keep the complete $J_C$ objective
@@ -425,41 +547,72 @@ following nominally bounded phases:
     $(o_1,e,o_2,v,a)$ vector is lexicographically no worse than that incumbent.
 \end{enumerate}
 
-Each accepted phase returns a legal assignment. Higher-priority values are
-constrained before lower-priority search begins. A final status of
-\emph{OPTIMAL} is exposed only if fairness, fallback use, one-inning runs,
-excess positions, the dedicated two-inning tier, and the final distinct-position
-and transition tail are all proven. Any legal incumbent lacking one of those
-proofs is truthfully labeled \emph{FEASIBLE}.
-The latter label concerns proof of objective optimality, not legality.
+An \emph{UNKNOWN} status from a time-limited slice is not interpreted as
+infeasibility. Every candidate is required to have a solved status and is then
+compared with the accepted incumbent by tuple lexicographic order, not
+componentwise order. A proved higher-priority value is fixed before the next
+phase begins; without such a proof, the complete incumbent ceiling remains
+active.
 
-On the recorded macOS reference environment at commit \code{fa92000}, twenty measured HFTB solves
+The application synthesizes its public status from all phase results. It reports
+\emph{OPTIMAL} if and only if every prefix proof flag is true and the final tail
+solve returns CP-SAT \emph{OPTIMAL}. Otherwise any returned legal incumbent is
+labeled \emph{FEASIBLE}, even when one or more prefix tiers are proved. The
+latter label denotes absence of a complete lexicographic optimality certificate,
+not uncertainty about legality.
+
+\section{Computational Evidence}
+
+Here For The Beer (HFTB) is a separate fifteen-player co-ed benchmark instance;
+it is not Team Red evidence. On the recorded macOS reference environment at
+commit \code{fa92000}, twenty measured HFTB calls to \code{optimize\_game}
 were distributed across four fresh Python processes after one excluded warm-up
-per process. All twenty preserved the proved fairness/preference prefix
+per process. The reported duration includes model construction and all solver
+phases, but excludes process startup, roster loading, and the excluded warm-up.
+All twenty preserved the proved fairness/fallback prefix
 $(4,210,0)$. Nineteen met the timed continuity target
 $(5,0,9,20,21)$ lexicographically: twelve returned $(5,0,9,19,20)$ and seven
 returned $(5,0,9,20,20)$. One legal incumbent returned
 $(5,0,10,20,21)$ and is retained explicitly in the evidence rather than hidden
-by an aggregate. Solver latency had p95 5.062 seconds and maximum 5.063 seconds;
+by an aggregate. Call duration had p95 5.062 seconds and maximum 5.063 seconds;
 the fairness/fallback prefix had p95 0.138 seconds and maximum 0.151 seconds.
-Every result remained truthfully \emph{FEASIBLE}. Thus the continuity threshold
-has a 90\%-minimum acceptance rate and achieved 95\% in the recorded reference;
-it is a measured target for nondeterministic timed search, not a hard
-feasibility promise.
+Every result remained \emph{FEASIBLE}. The configured experimental gate was an
+acceptance proportion of at least 0.90; the observed empirical proportion was
+$19/20=0.95$. No population guarantee or confidence bound is claimed. The p95
+statistic is the nearest-rank order statistic for $n=20$, not an estimate of a
+service-level guarantee.
 
-The web interface reports the active phase while a solve is in progress and
-shows a small animated stick figure. This deliberately low-technology cue
-serves a serious interaction purpose: mobile users receive immediate evidence
-that their button press was accepted and that the application is computing,
-rather than mistaking a multi-second solve for a dropped tap.
+\begin{table}[htbp]
+\centering
+\caption{Recorded HFTB benchmark results at revision \code{fa92000}.}
+\label{tab:hftb-results}
+\small
+\begin{tabular}{lr}
+\toprule
+Quantity & Recorded value\\
+\midrule
+Measured repetitions & 20\\
+Certified fairness/fallback prefix & $(4,210,0)$ in 20/20 runs\\
+Continuity vector $(5,0,9,19,20)$ & 12 runs\\
+Continuity vector $(5,0,9,20,20)$ & 7 runs\\
+Continuity vector $(5,0,10,20,21)$ & 1 run\\
+Target-satisfying proportion & $19/20=0.95$\\
+Call duration, p95 / maximum & 5.062 / 5.063 seconds\\
+Prefix duration, p95 / maximum & 0.138 / 0.151 seconds\\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{Team Red Case Study}
 
-This case study uses the current fourteen-player Team Red roster in
-\code{team\_red\_roster.csv}, with every player initially available under
-locked Open rules. Its explicit preferences are:
+This case study uses the fourteen-player Team Red snapshot reproduced in
+Table~\ref{tab:team-red-roster}, with every player initially available under
+locked Open rules.
 
-\begin{center}
+\begin{table}[htbp]
+\centering
+\caption{Team Red roster snapshot and explicit positional preferences.}
+\label{tab:team-red-roster}
 \begin{tabular}{ll@{\qquad}ll}
 \toprule
 Player & Explicit preferences & Player & Explicit preferences\\
@@ -473,45 +626,75 @@ AP & SS, LF & Chris & C, 2B, RF\\
 Marty & SS, LC & Shaz & C, RF\\
 \bottomrule
 \end{tabular}
-\end{center}
+\end{table}
 
-With $N=14$ and $K=10$, the instance contains $H=70$ fielding slots, for an
-equal share of five innings per player. Dung is the only explicitly eligible
-pitcher and therefore must pitch all seven innings. A playing-time spread of
-two or less is impossible: with one player at seven innings, the other thirteen
-players would each need at least five, requiring at least $72$ slots. A schedule
-with one player at seven innings, eleven at five, and two at four uses exactly
+\begin{table}[H]
+\centering
+\caption{Representative Team Red defensive schedule.}
+\label{tab:team-red-lineup}
+\scriptsize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{c@{\quad}llllllllll}
+\toprule
+Inning & P & C & 1B & 2B & 3B & SS & LF & LC & RC & RF\\
+\midrule
+1 & Dung & Brad & Andrew & Chris & Ryan & Marty & Heather & Kevin & David R & David\\
+2 & Dung & Brad & Justin & Chris & Ryan & Marty & Heather & Kevin & David R & David\\
+3 & Dung & Shaz & Justin & Chris & Tristan & AP & Heather & Kevin & David R & David\\
+4 & Dung & Shaz & Justin & Andrew & Tristan & AP & Heather & Kevin & David R & David\\
+5 & Dung & Shaz & Ryan & Andrew & Tristan & AP & Brad & Marty & David R & David\\
+6 & Dung & Shaz & Ryan & Andrew & Tristan & AP & Brad & Marty & Justin & Chris\\
+7 & Dung & Shaz & Ryan & Andrew & Tristan & AP & Brad & Marty & Justin & Chris\\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+Table~\ref{tab:team-red-lineup} records one machine-checked incumbent produced
+by the nominal five-second procedure. It is included as a primal feasibility
+witness, not as a claim of uniqueness.
+
+\begin{proposition}[Optimal Team Red fairness profile]
+\label{prop:team-red-fairness}
+For the snapshot in Table~\ref{tab:team-red-roster}, every feasible schedule has
+$\Delta\ge3$. Conditional on $\Delta=3$, the minimum scaled absolute deviation
+is 56, attained by the inning-count multiset
+$\{7^1,5^{11},4^2\}$.
+\end{proposition}
+\begin{proof}
+Here $N=14$, $K=10$, and $H=70$. Pitcher is active in every inning, and Dung is
+the unique player whose eligible set contains P. Let $p_D$ denote Dung. Hence
+$x_{ip_D\mathrm P}=1$ for every $i\in\mathcal I$ and $t_{p_D}=7$.
+If $\Delta\le2$, every other player must receive at least five innings, implying
+$\sum_pt_p\ge7+13(5)=72>H$, a contradiction. Thus $\Delta\ge3$.
+
+The schedule in Table~\ref{tab:team-red-lineup} has count multiset
+$\{7^1,5^{11},4^2\}$ and therefore establishes $\Delta\le3$. For the second
+tier, let $a_j$ count players with $j$ innings in a spread-three schedule.
+Because $4\le t_p\le7$,
+$a_4+a_5+a_6+a_7=14$ and
+$4a_4+5a_5+6a_6+7a_7=70$, whence $a_4=a_6+2a_7$.
+Moreover $a_7\ge1$, and
 \[
-1(7)+11(5)+2(4)=70
+\sum_pd_p=14a_4+14a_6+28a_7=28a_6+56a_7\ge56.
 \]
-slots and attains spread three, proving the first fairness tier. To establish
-the second tier, let $a$, $b$, $c$, and $d$ be the numbers of players receiving
-four, five, six, and seven innings. Within a spread-three solution,
-$a+b+c+d=14$, $4a+5b+6c+7d=70$, and therefore $a=c+2d$. Dung forces $d\geq1$.
-The scaled deviation from five innings is $14(a+c+2d)=28c+56d$, which is
-minimized by $(a,b,c,d)=(2,11,0,1)$. The resulting deviation is
+The displayed schedule attains 56, completing both bounds.
+\end{proof}
+
+For the complete vector in~\eqref{eq:lex-objective}, the displayed incumbent has
 \[
-1|14(7)-70|+11|14(5)-70|+2|14(4)-70|=56.
+z=(3,56,0,3,0,15,20,20).
 \]
+The zero fallback count is optimal conditional on the certified fairness pair
+because $f\ge0$. The application status was \emph{FEASIBLE}, so no optimality
+claim is made for $(o_1,e,o_2,v,a)=(3,0,15,20,20)$. Multiple name-by-name
+schedules may have the same vector.
 
-The regression instance further establishes the following operational
-properties:
-\begin{itemize}
-    \item all seven innings fill all ten positions with distinct players;
-    \item Dung occupies P in every inning;
-    \item all assignments are explicit preferences, so $f=0$;
-    \item every player uses at most two field positions;
-    \item a representative nominal five-second solve has continuity vector
-    $(3,0,15,20,20)$: three one-inning state runs, no excess field positions,
-    15 exact two-inning state runs, 20 player-position incidences, and 20
-    adjacent state transitions.
-\end{itemize}
-
-These measurements characterize a representative objective outcome, not a
-unique name-by-name lineup or a proof of the final continuity tiers. Multiple
-schedules can share the same lexicographic quality. The application returns one
-solver-selected representative and uses it directly as the final defensive
-schedule.
+The recorded run used code revision \code{ff382de}, roster SHA-256
+\nolinkurl{4b3f2715e9dbb40dc8dfac945ea060953f6c31b17fd6d8be2d94af0ff33b9ad3},
+Python 3.9.6, OR-Tools 9.15.6755, and macOS 26.6.2 on arm64. The measured
+\code{optimize\_game} call took 5.073 seconds under the nominal five-second
+budget. This single recorded execution is a reproducible artifact datum, not a
+sampling statement about latency or incumbent quality.
 
 The instance also exposes availability risk clearly. If Dung is marked
 unavailable, no remaining player has opted into P. Simultaneous absences by
@@ -520,19 +703,24 @@ simultaneous absences by AP and Marty leave twelve players but remove all SS
 coverage. Adequate headcount therefore does not guarantee positional
 feasibility. The correct response is an infeasibility message identifying the
 uncovered position, not an invented assignment and not a reduced nine-player
-lineup. By contrast, a missing explicit catcher does not create infeasibility
-because every player is eligible to catch by policy.
+lineup. The absence of any catcher opt-in, by itself, cannot leave C uncovered
+because $\mathrm C\in E_p$ for every player; another Hall conflict could still
+make the lineup infeasible.
 
 \section{Verification and Falsification Strategy}
 
 Validation is organized around properties rather than visual plausibility.
-At the September 2026 release gate, 144 Python tests and 16 Playwright browser
-tests pass. The browser suite runs each workflow in a mobile-touch project and
-a desktop-mouse project. The principal evidence includes:
+At prepublication revision \code{ff382de}, a local run recorded 144 passing
+pytest cases. The Playwright suite defines eight scenario functions, each
+configured for a mobile-touch project and a desktop-mouse project, yielding 16
+project-test executions. These are implementation-conformance checks; they are
+not substitutes for the analytic bounds or solver certificates stated above.
+The principal checks include:
 \begin{enumerate}
     \item \textbf{Legality invariants:} seven innings, exact active-position
     coverage, no duplicated player within an inning, valid eligibility, and
-    reported summary counts reconstructed independently from assignments.
+    reported summary counts recomputed from returned assignments, with separate
+    assertions for eligibility.
     \item \textbf{Open-profile boundaries:} legal eight-, nine-, and ten-
     fielder position sets; no gender error in Open; no nine-player RF-to-RC
     special promotion; universal C fallback; and explicit P/1B requirements.
@@ -540,7 +728,9 @@ a desktop-mouse project. The principal evidence includes:
     \code{Unspecified} gender, locked Open rules, all players initially
     available, fair inning distribution, and no player assigned to more than
     two field positions.
-    \item \textbf{Preference-priority witness:} the original fixture has a
+    \item \textbf{Preference-priority witness:} the fixture implemented by
+    \path{test_explicit_preferences_beat_a_strictly_smoother_fallback_schedule}
+    in \code{tests/test\_optimizer.py} has a
     solver-proven seven-fallback optimum with continuity vector
     $(5,1,16,20,21)$. Promoting Third Specialist's already-eligible 2B from a
     fallback to an explicit preference leaves the eligibility sets unchanged
@@ -549,8 +739,9 @@ a desktop-mouse project. The principal evidence includes:
     components are, respectively, one-inning runs, excess positions,
     two-inning runs, total distinct positions, and adjacent transitions; the
     first improvement is excess positions, from one to zero. The original
-    optimizer nevertheless selects the seven-fallback result, proving that
-    continuity cannot buy a worse aggregate fallback count.
+    optimizer nevertheless selects the seven-fallback result. The test detects
+    violations on this fixture; the general non-worsening property follows from
+    imposing the exact constraint $f=f^{inc}$ before continuity search.
     \item \textbf{Mutation test:} weakening the exact fallback-incumbent freeze
     to a one-sided inequality is detected. The regression inspects the model
     domain and requires the exact singleton interval $[f,f]$.
@@ -570,19 +761,20 @@ rejects it. This is closer to falsification than to screenshot confirmation.
 
 The objective order encodes several practical slowpitch considerations.
 Continuous field-position blocks reduce repeated instruction, warm-up changes,
-and uncertainty between innings. Modeling Bench as a state prevents a schedule
-from appearing stable while repeatedly sending the same player on and off the
-field. Consecutive Bench innings also make the rotation easier to communicate
-from a phone in a dugout.
+and uncertainty between innings only as an intended operational proxy; no user
+study estimates those causal effects. Modeling $\Bench$ as a state prevents the
+objective from ignoring repeated movement between the field and bench.
+Consecutive bench innings are likewise intended to simplify communication from
+a phone in a dugout, but that usability claim has not been experimentally
+evaluated.
 
 The hierarchy supplies controlled resilience without pretending all positions
 are interchangeable. Its SS-to-3B/2B, 3B-to-2B, and LC-to-LF/RC/RF pathways
 are declared team-policy eligibility rules, not universal claims that one
-position is easier than another. Third base remains the hot corner, and
-center- and corner-field reads can demand different skills. The separate
-fallback phase prevents continuity from increasing the secured aggregate
-fallback count, while still permitting redistribution among schedules tied at
-that count. Pitching and first base remain special, explicit choices.
+position is easier than another. The separate fallback phase prevents
+continuity from increasing the fixed aggregate fallback value, while still
+permitting redistribution among schedules tied at that value. Pitching and
+first base remain explicit-only choices.
 
 Operational authority is scoped to an input snapshot, not to every open web
 session. Team Red's defaults mark all fourteen players available, but that is
@@ -619,9 +811,10 @@ If a future league or team rejects that assumption, the input schema and hard
 eligibility rules would need an explicit change; silently weakening the rule
 inside the solver would be inappropriate.
 
-The objective treats all explicit preferences as equal and all inferred
-fallbacks as equal. It does not know that one player strongly favors LC over
-LF unless the roster is edited to reflect only the intended choices. A future
+The objective treats all explicit preferences as equal and all eligible
+non-explicit assignments as equal. It does not know that one player strongly
+favors LC over LF unless the roster is edited to reflect only the intended
+choices. A future
 ranked-preference model could add tiers, but it would require additional input
 and a revised priority contract.
 
@@ -639,22 +832,21 @@ seven-inning horizon requires renewed, reproducible timing measurement.
 Open-division defensive scheduling is best viewed as a lexicographic state-
 assignment problem. The model fills every required position, equalizes playing
 time as far as eligibility permits, preserves explicit preferences before
-using a controlled hierarchy, and then constructs long, low-switch field and
-Bench runs. The distinction between explicit preference and inferred
-eligibility is essential: flexibility is available to obtain a legal, fair
-schedule, but the aggregate use of that flexibility is secured before the
-solver makes its continuity statistics prettier. Individual fallback
-assignments may still move among schedules tied at the same aggregate count.
+using controlled eligibility expansion, and then optimizes ordered continuity
+measures over field and $\Bench$ states. Fixing the aggregate fallback value
+before continuity search preserves the distinction between explicitly declared
+positions and merely eligible alternatives, although individual fallback
+assignments may still differ among aggregate ties.
 
-The Team Red case demonstrates the formulation on a real fourteen-player
-roster. Its tested schedule achieves the minimum possible playing-time spread
-and scaled deviation, uses no fallback inning, respects the two-position
-target, and limits unnecessary state changes. The staged CP-SAT
-implementation is designed for game-day interaction, reports observed elapsed
-time and proof status honestly, and is exercised through both model-level and
-real-browser regressions. The final lineup is consequently not a suggestion
-awaiting captain repair; it is the authoritative output of the stated rules,
-confirmed input snapshot, and priorities.
+For Team Red, Proposition~\ref{prop:team-red-fairness} proves a minimum playing-time spread of three and a
+minimum scaled deviation of 56. The recorded incumbent uses no fallback
+assignments, assigns no player to more than two field positions, and has
+continuity vector $(3,0,15,20,20)$; the public \emph{FEASIBLE} status expressly
+withholds a claim of complete continuity optimality. The staged procedure is
+therefore suitable as a legal-incumbent generator on an interactive time scale,
+subject to the empirical and modeling limitations stated above. Natural
+extensions include inning-specific availability, season-level equity, ranked
+preferences, and empirical calibration of player--position suitability.
 
 \appendix
 \section{Algorithmic Summary}
@@ -664,10 +856,10 @@ The implemented procedure may be summarized as follows:
     \item normalize and validate the selected available players;
     \item select the Open active-position set from $N$;
     \item derive $E_p$ and $F_p$ while preserving $Q_p$;
-    \item preflight active-position coverage;
-    \item construct field, Bench, fairness, run, position-use, and transition
+    \item preflight a distinct-player matching that covers all active positions;
+    \item construct field, $\Bench$, fairness, run, position-use, and transition
     variables;
-    \item attempt the arithmetic fairness certificate, otherwise optimize
+    \item attempt the balanced-count feasibility certificate, otherwise optimize
     fairness;
     \item constrain the achieved fairness pair exactly;
     \item minimize and freeze fallback innings;
@@ -697,6 +889,10 @@ provides a shareable \code{streamlit.app} URL \cite{streamlitdeploy}. Python
 dependencies are declared in \code{requirements.txt}, consistent with the
 platform's dependency mechanism \cite{streamlitdeps}.
 
+During a solve, the web interface reports the active phase and displays a small
+animated stick figure. This cue is intended to distinguish active computation
+from an unregistered input event; no usability experiment is claimed.
+
 The command-line verification entry points are:
 \begin{itemize}
     \item \code{python -m pytest} for model and Streamlit state tests;
@@ -709,6 +905,12 @@ The command-line verification entry points are:
     \code{--output benchmarks/hftb-5s-reference.json} for the opt-in 20-run HFTB latency,
     phase-timing, and lexicographic-quality contract across fresh processes.
 \end{itemize}
+
+The PDF was built with pdfTeX 3.141592653-2.6-1.40.29 (TeX Live 2026) by running
+\code{pdflatex} twice with \code{-interaction=nonstopmode} and
+\code{-halt-on-error}. Exact Python and OR-Tools versions are recorded for the
+Team Red witness because the version ranges in \code{requirements.txt} are
+deployment constraints rather than a fully pinned research environment.
 
 \begingroup
 \small

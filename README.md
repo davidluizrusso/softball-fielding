@@ -86,8 +86,9 @@ latency and quality contract outside the ordinary test suite with:
 The checked-in [reference artifact](benchmarks/hftb-5s-reference.json) records
 all 20 qualifying runs and their environment, phase timing, status, and quality
 vectors. Timed multi-worker search is nondeterministic: every reference run
-must preserve the fairness/preference prefix, while the continuity vector is a
-90%-minimum measured target rather than a hard feasibility guarantee.
+must preserve the fairness/fallback prefix. The configured continuity gate
+requires at least 90% of measured runs to meet its target; the reference
+artifact records 95%. Neither value is a population or service-level guarantee.
 
 See [SPEC.md](SPEC.md) for the lineup rules and optimization priorities.
 
