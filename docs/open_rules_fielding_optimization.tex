@@ -47,11 +47,11 @@ modeled as a genuine continuity state, so a field-to-Bench movement is treated
 as a switch and consecutive bench innings are favored. The model is solved by
 OR-Tools CP-SAT using a nominal interactive solver-phase target and reports a
 conservative distinction between proven optimal and merely feasible results.
-For the thirteen-player Team Red instance, the implementation produces the
-provably fairest inning-count distribution, uses no fallback assignment,
-keeps every player at no more than two fielding positions, and consolidates
-all avoidable one-inning field and Bench runs. Automated model, mutation,
-application-state, and mobile-browser tests establish the principal claims.
+For the current fourteen-player Team Red instance, the implementation produces
+the provably fairest inning-count distribution, uses no fallback assignment,
+and keeps every player at no more than two fielding positions. Automated model,
+mutation, application-state, and mobile-browser tests establish the principal
+claims.
 The optimizer's returned schedule is the operational output; the application
 contains no subsequent captain-approval or manual-review stage.
 \end{abstract}
@@ -455,45 +455,43 @@ rather than mistaking a multi-second solve for a dropped tap.
 
 \section{Team Red Case Study}
 
-This case study uses the original thirteen-player Team Red roster, all initially
-available under locked Open rules. The current \code{team\_red\_roster.csv}
-contains fourteen players, including Shaz, and updated preferences for Andrew
-and David R. The original benchmark's explicit preferences are:
+This case study uses the current fourteen-player Team Red roster in
+\code{team\_red\_roster.csv}, with every player initially available under
+locked Open rules. Its explicit preferences are:
 
 \begin{center}
 \begin{tabular}{ll@{\qquad}ll}
 \toprule
 Player & Explicit preferences & Player & Explicit preferences\\
 \midrule
-David R & 2B, RC & Justin & 1B, RC\\
-Andrew & C, 2B, RF & Kevin & 2B, LC\\
+David R & 2B, 3B, RC & Justin & 1B, RC\\
+Andrew & 1B, 2B & Kevin & 2B, LC\\
 David & RF & Dung & P\\
 Heather & LF, LC & Ryan & 1B, 3B\\
 Tristan & C, 3B & Brad & C, LF\\
 AP & SS, LF & Chris & C, 2B, RF\\
-Marty & SS, LC & &\\
+Marty & SS, LC & Shaz & C, RF\\
 \bottomrule
 \end{tabular}
 \end{center}
 
-With $N=13$ and $K=10$, the instance contains $H=70$ fielding slots. Dung is
-the only explicitly eligible pitcher and therefore must pitch all seven
-innings. A playing-time spread of one is impossible: if a seven-inning player
-were present, all thirteen players would need at least six innings, requiring
-at least $78$ slots. A schedule with one player at seven innings, three at six,
-and nine at five uses exactly
+With $N=14$ and $K=10$, the instance contains $H=70$ fielding slots, for an
+equal share of five innings per player. Dung is the only explicitly eligible
+pitcher and therefore must pitch all seven innings. A playing-time spread of
+two or less is impossible: with one player at seven innings, the other thirteen
+players would each need at least five, requiring at least $72$ slots. A schedule
+with one player at seven innings, eleven at five, and two at four uses exactly
 \[
-1(7)+3(6)+9(5)=70
+1(7)+11(5)+2(4)=70
 \]
-slots and attains spread two. It therefore proves the minimum spread for this
-instance. To establish the second fairness tier, let $a$, $b$, and $c$ be the
-numbers of players receiving five, six, and seven innings. Then
-$a+b+c=13$, $5a+6b+7c=70$, and hence $b+2c=5$. Dung forces $c\geq1$. The only
-possibilities are $(a,b,c)=(9,3,1)$ and $(10,1,2)$, with scaled deviations 90
-and 100 respectively. The first distribution is therefore optimal for both
-fairness tiers, and its deviation is
+slots and attains spread three, proving the first fairness tier. To establish
+the second tier, let $a$, $b$, $c$, and $d$ be the numbers of players receiving
+four, five, six, and seven innings. Within a spread-three solution,
+$a+b+c+d=14$, $4a+5b+6c+7d=70$, and therefore $a=c+2d$. Dung forces $d\geq1$.
+The scaled deviation from five innings is $14(a+c+2d)=28c+56d$, which is
+minimized by $(a,b,c,d)=(2,11,0,1)$. The resulting deviation is
 \[
-1|13(7)-70|+3|13(6)-70|+9|13(5)-70|=90.
+1|14(7)-70|+11|14(5)-70|+2|14(4)-70|=56.
 \]
 
 The regression instance further establishes the following operational
@@ -503,33 +501,32 @@ properties:
     \item Dung occupies P in every inning;
     \item all assignments are explicit preferences, so $f=0$;
     \item every player uses at most two field positions;
-    \item every field-position run has length at least two;
-    \item each five-inning player's two Bench innings are consecutive;
-    \item the only three one-inning runs are the mathematically unavoidable
-    Bench runs of the three six-inning players;
-    \item the schedule contains 15 exact two-inning state runs, 18 adjacent
-    state transitions, and 19 total player-position incidences.
+    \item a representative nominal five-second solve has continuity vector
+    $(3,0,15,20,20)$: three one-inning state runs, no excess field positions,
+    15 exact two-inning state runs, 20 player-position incidences, and 20
+    adjacent state transitions.
 \end{itemize}
 
-These measurements characterize the tested objective outcome, not a unique
-name-by-name lineup. Multiple schedules can share the same lexicographic
-quality. The application returns one solver-selected representative and uses
-it directly as the final defensive schedule.
+These measurements characterize a representative objective outcome, not a
+unique name-by-name lineup or a proof of the final continuity tiers. Multiple
+schedules can share the same lexicographic quality. The application returns one
+solver-selected representative and uses it directly as the final defensive
+schedule.
 
 The instance also exposes availability risk clearly. If Dung is marked
-unavailable, no remaining player has opted into P. With eleven available
-players, simultaneous absences by Justin and Ryan remove all 1B coverage, while
-simultaneous absences by AP and Marty remove all SS coverage. Adequate headcount
-therefore does not guarantee positional feasibility. The correct response is
-an infeasibility message identifying the uncovered position, not an invented
-assignment and not a reduced nine-player lineup. By contrast, a missing
-explicit catcher does not create infeasibility because every player is eligible
-to catch by policy.
+unavailable, no remaining player has opted into P. Simultaneous absences by
+Justin, Andrew, and Ryan leave eleven players but remove all 1B coverage, while
+simultaneous absences by AP and Marty leave twelve players but remove all SS
+coverage. Adequate headcount therefore does not guarantee positional
+feasibility. The correct response is an infeasibility message identifying the
+uncovered position, not an invented assignment and not a reduced nine-player
+lineup. By contrast, a missing explicit catcher does not create infeasibility
+because every player is eligible to catch by policy.
 
 \section{Verification and Falsification Strategy}
 
 Validation is organized around properties rather than visual plausibility.
-At the September 2026 release gate, 100 Python tests and 14 Playwright browser
+At the September 2026 release gate, 144 Python tests and 16 Playwright browser
 tests pass. The browser suite runs each workflow in a mobile-touch project and
 a desktop-mouse project. The principal evidence includes:
 \begin{enumerate}
@@ -541,8 +538,8 @@ a desktop-mouse project. The principal evidence includes:
     special promotion; universal C fallback; and explicit P/1B requirements.
     \item \textbf{Team Red contract:} exact names and preferences, internal
     \code{Unspecified} gender, locked Open rules, all players initially
-    available, fair inning distribution, and the continuity metrics reported
-    above.
+    available, fair inning distribution, and no player assigned to more than
+    two field positions.
     \item \textbf{Preference-priority witness:} the original fixture has a
     solver-proven seven-fallback optimum with continuity vector
     $(5,1,16,20,21)$. Promoting Third Specialist's already-eligible 2B from a
@@ -588,7 +585,7 @@ fallback count, while still permitting redistribution among schedules tied at
 that count. Pitching and first base remain special, explicit choices.
 
 Operational authority is scoped to an input snapshot, not to every open web
-session. Team Red's defaults mark all thirteen players available, but that is
+session. Team Red's defaults mark all fourteen players available, but that is
 not attendance confirmation. Before solving, one designated lineup caller must
 mark every scratch. Any later availability or preference change requires a new
 solve, and the newly displayed or downloaded matrix supersedes the previous
@@ -649,10 +646,10 @@ schedule, but the aggregate use of that flexibility is secured before the
 solver makes its continuity statistics prettier. Individual fallback
 assignments may still move among schedules tied at the same aggregate count.
 
-The Team Red case demonstrates the formulation on a real thirteen-player
+The Team Red case demonstrates the formulation on a real fourteen-player
 roster. Its tested schedule achieves the minimum possible playing-time spread
 and scaled deviation, uses no fallback inning, respects the two-position
-target, and consolidates every avoidable one-inning state. The staged CP-SAT
+target, and limits unnecessary state changes. The staged CP-SAT
 implementation is designed for game-day interaction, reports observed elapsed
 time and proof status honestly, and is exercised through both model-level and
 real-browser regressions. The final lineup is consequently not a suggestion

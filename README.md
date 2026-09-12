@@ -97,7 +97,6 @@ See [SPEC.md](SPEC.md) for the lineup rules and optimization priorities.
 [Open-rules optimization paper](docs/open_rules_fielding_optimization.pdf)
 provides the formal model, Team Red case study, and verification evidence; its
 [LaTeX source](docs/open_rules_fielding_optimization.tex) is checked in beside
-it. The paper's Team Red case study uses the original 13-player roster; current
-defaults are in `team_red_roster.csv` (14 players, including Shaz). The older
-papers in `docs/` are retained only as historical pre-hierarchy
-examples and do not describe the current optimizer.
+it. Its case study uses the current 14-player roster and preferences from
+`team_red_roster.csv`. The older papers in `docs/` are retained only as
+historical pre-hierarchy examples and do not describe the current optimizer.
